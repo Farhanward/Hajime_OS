@@ -112,6 +112,7 @@ jobs:
 
             echo
             echo "===== 8. postgres: initdb and a real query ====="
+            sysrc postgresql_enable=YES
             service postgresql initdb
             service postgresql start
             sleep 5
@@ -135,12 +136,38 @@ jobs:
             redis-cli ping
 
             echo
-            echo "===== 11. the model, trained here ====="
+            echo "===== 11. caddy: reverse-proxy smoke test ====="
+            mkdir -p /usr/local/etc/caddy
+            printf ':80 {\n    respond "Hajime OS CI" 200\n}\n' \
+              > /usr/local/etc/caddy/Caddyfile
+            sysrc caddy_enable=YES
+            service caddy start
+            sleep 2
+            fetch -qo - http://127.0.0.1:80/
+
+            echo
+            echo "===== 12. hajime_workflow: the engine the sites depend on ====="
+            install -m 755 target/release/hajime-workflow /usr/local/bin/
+            install -m 755 hajime-workflow/rc.d/hajime_workflow /usr/local/etc/rc.d/
+            pw groupadd hajime -g 900 2>/dev/null || true
+            pw useradd hajime -u 900 -g hajime -d /vault/hajime \
+              -s /usr/sbin/nologin 2>/dev/null || true
+            install -d -o hajime -g hajime -m 750 /vault/hajime
+            install -d -o hajime -g hajime -m 750 /usr/local/etc/hajime
+            echo '[]' > /vault/hajime/workflows.json
+            chown hajime:hajime /vault/hajime/workflows.json
+            chmod 640 /vault/hajime/workflows.json
+            sysrc hajime_workflow_enable=YES
+            service hajime_workflow start
+            sleep 2
+
+            echo
+            echo "===== 13. the model, trained here ====="
             ./target/release/hajime-model accuracy
             ./target/release/hajime-model ask "what is running" || true
 
             echo
-            echo "===== 12. hajimectl against real databases ====="
+            echo "===== 14. hajimectl against real databases ====="
             install -m 755 target/release/hajimectl /usr/local/bin/
             hajimectl status || true
             hajimectl check || true
