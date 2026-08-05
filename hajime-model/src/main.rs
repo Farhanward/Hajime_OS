@@ -9,6 +9,7 @@
 //!   hajime-model ask --json "..."        the same, for another program
 //!   hajime-model explain <service>       dependencies, fallout, memory
 //!   hajime-model check                   constraints against what is running
+//!   hajime-model repair [--json]         what is wrong and the order to fix it
 //!   hajime-model train <file>            train and write the weights out
 //!   hajime-model accuracy                what it scores on held-out phrasings
 //!
@@ -18,7 +19,7 @@
 //! running exactly the weights that were measured, rather than whatever today's
 //! corpus produces.
 
-use hajime_model::classify::{Classifier, DEFAULT_EPOCHS, DEFAULT_RATE};
+use hajime_model::classify::{Classifier, Compact, DEFAULT_EPOCHS, DEFAULT_RATE};
 use hajime_model::plan::{Plan, Planner};
 use hajime_model::{corpus, slots, world::World};
 use std::process::ExitCode;
@@ -29,6 +30,7 @@ fn usage() -> ExitCode {
   hajime-model ask [--json] <request>
   hajime-model explain <service>
   hajime-model check
+  hajime-model repair [--json]
   hajime-model train <output-file>
   hajime-model accuracy"
     );
@@ -54,7 +56,14 @@ fn load_or_train() -> Classifier {
             continue;
         }
         match std::fs::read_to_string(&path) {
-            Ok(raw) => match Classifier::from_json(&raw) {
+            // Compact first: that is what `train` writes now. The float form
+            // is still accepted so a weights file from before the change keeps
+            // working rather than sending the binary back to training on every
+            // invocation.
+            Ok(raw) => match Compact::from_json(&raw)
+                .map(|c| c.expand())
+                .or_else(|_| Classifier::from_json(&raw))
+            {
                 Ok(model) => return model,
                 Err(e) => {
                     eprintln!("{path}: {e}");
@@ -204,6 +213,70 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
 
+        "repair" => {
+            use hajime_model::repair::{Doctor, Repair};
+            let world = World::default();
+            let running = running_now();
+            let plan = Doctor::new(&world).repair(&running);
+
+            if args.iter().any(|a| a == "--json") {
+                println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+                return match plan {
+                    Repair::Healthy => ExitCode::SUCCESS,
+                    Repair::Plan { .. } => ExitCode::from(10),
+                    Repair::Impossible { .. } => ExitCode::FAILURE,
+                };
+            }
+
+            match plan {
+                Repair::Healthy => {
+                    println!("nothing is wrong");
+                    ExitCode::SUCCESS
+                }
+                Repair::Plan { faults, steps, ends_running, freed_mb } => {
+                    println!("{} fault(s):", faults.len());
+                    for f in &faults {
+                        println!("  {:?}  {}", f.severity, f.what);
+                    }
+                    println!();
+                    println!("{} step(s), in this order:", steps.len());
+                    for (i, s) in steps.iter().enumerate() {
+                        println!(
+                            "  {}. {}{}",
+                            i + 1,
+                            s.command.join(" "),
+                            if s.destructive { "   [needs your yes]" } else { "" }
+                        );
+                        println!("     {}", s.because);
+                    }
+                    println!();
+                    if freed_mb > 0 {
+                        println!("frees {freed_mb} MB along the way");
+                    }
+                    println!("afterwards: {}", ends_running.join(", "));
+                    println!();
+                    println!("This was checked against every constraint before being");
+                    println!("printed. Nothing here has been run.");
+                    // Not an error, and not done either.
+                    ExitCode::from(10)
+                }
+                Repair::Impossible { faults, because, remaining } => {
+                    println!("{} fault(s), and no sequence of starts and stops fixes them:", faults.len());
+                    for f in &faults {
+                        println!("  {}", f.what);
+                    }
+                    println!();
+                    println!("{because}");
+                    println!();
+                    println!("what would still be wrong:");
+                    for r in &remaining {
+                        println!("  {r}");
+                    }
+                    ExitCode::FAILURE
+                }
+            }
+        }
+
         "train" => {
             let Some(out) = args.get(1) else {
                 eprintln!("train where? give an output path");
@@ -215,7 +288,8 @@ fn main() -> ExitCode {
             let model = Classifier::train(&training, DEFAULT_EPOCHS, DEFAULT_RATE);
             let seconds = started.elapsed().as_secs_f32();
 
-            let json = match model.to_json() {
+            let compact = model.to_compact();
+            let json = match compact.to_json() {
                 Ok(j) => j,
                 Err(e) => {
                     eprintln!("could not serialise the model: {e}");
@@ -230,7 +304,11 @@ fn main() -> ExitCode {
             println!("{} sentences, trained in {seconds:.2}s", training.len());
             println!("training accuracy {:.3}", model.accuracy(&training));
             println!("holdout accuracy  {:.3}", model.accuracy(&corpus::holdout()));
-            println!("wrote {out} ({:.0} KB)", json.len() as f32 / 1024.0);
+            println!(
+                "wrote {out} ({:.0} KB on disk, {:.0} KB of weights at 8 bits)",
+                json.len() as f32 / 1024.0,
+                compact.size_bytes() as f32 / 1024.0
+            );
             ExitCode::SUCCESS
         }
 

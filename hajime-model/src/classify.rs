@@ -234,6 +234,42 @@ impl Classifier {
         (self.classes * self.buckets + self.classes) * std::mem::size_of::<f32>()
     }
 
+    /// The weights at eight bits each, with one scale to bring them back.
+    ///
+    /// Measured, not assumed: at 8 bits the held-out accuracy is 0.778, the
+    /// same as at 32. The decision is a comparison between sums, so rounding
+    /// each weight moves every sum by a similar small amount and the ordering
+    /// survives. `examples/shrink.rs` is where that was checked and is the
+    /// thing to re-run before trusting it again.
+    ///
+    /// The table size is a separate question and the same experiment says it
+    /// is already at its floor: halving the buckets costs accuracy at every
+    /// step. Fewer bits per weight is free; fewer weights is not.
+    pub fn to_compact(&self) -> Compact {
+        let max = self
+            .weights
+            .iter()
+            .flat_map(|row| row.iter())
+            .fold(0f32, |m, w| m.max(w.abs()));
+        // A table of zeros would divide by zero. It cannot classify anything
+        // either, but it should round-trip rather than produce NaN.
+        let scale = if max > 0.0 { 127.0 / max } else { 1.0 };
+
+        Compact {
+            weights: self
+                .weights
+                .iter()
+                .map(|row| row.iter().map(|w| (w * scale).round() as i8).collect())
+                .collect(),
+            // The bias stays at full precision: there is one per class, so
+            // eleven floats, and it shifts every score for that class at once.
+            bias: self.bias.clone(),
+            scale,
+            buckets: self.buckets,
+            classes: self.classes,
+        }
+    }
+
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
@@ -285,6 +321,58 @@ impl Xorshift {
             let j = (self.next() % (i as u64 + 1)) as usize;
             items.swap(i, j);
         }
+    }
+}
+
+/// A trained model at eight bits per weight.
+///
+/// A quarter the size of the float form, and by measurement no less accurate
+/// on this task. This is what gets written to disk and shipped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Compact {
+    weights: Vec<Vec<i8>>,
+    bias: Vec<f32>,
+    /// Multiply a stored weight by this to recover the original.
+    scale: f32,
+    buckets: usize,
+    classes: usize,
+}
+
+impl Compact {
+    pub fn size_bytes(&self) -> usize {
+        self.classes * self.buckets + self.classes * std::mem::size_of::<f32>()
+    }
+
+    /// Back to the form that classifies.
+    pub fn expand(&self) -> Classifier {
+        Classifier {
+            weights: self
+                .weights
+                .iter()
+                .map(|row| row.iter().map(|w| *w as f32 / self.scale).collect())
+                .collect(),
+            bias: self.bias.clone(),
+            buckets: self.buckets,
+            classes: self.classes,
+        }
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    pub fn from_json(raw: &str) -> Result<Self, ModelError> {
+        let m: Self = serde_json::from_str(raw).map_err(ModelError::Unreadable)?;
+        if m.buckets != BUCKETS {
+            return Err(ModelError::WrongShape { found: m.buckets, expected: BUCKETS });
+        }
+        if m.classes != Intent::ALL.len() {
+            return Err(ModelError::WrongClasses {
+                found: m.classes,
+                expected: Intent::ALL.len(),
+            });
+        }
+        Ok(m)
     }
 }
 
@@ -431,6 +519,69 @@ mod tests {
         for text in ["stop caddy", "شغل النموذج", "what is running"] {
             assert_eq!(model.predict(text), loaded.predict(text), "{text}");
         }
+    }
+
+    #[test]
+    fn eight_bit_storage_answers_the_same_as_full_precision() {
+        // The claim the compact form rests on, as a test rather than a note.
+        // Measured at 0.778 either way in examples/shrink.rs; this asserts the
+        // per-sentence agreement that number is made of.
+        let full = trained();
+        let small = full.to_compact().expand();
+
+        let holdout = corpus::holdout();
+        let mut agree = 0usize;
+        for e in &holdout {
+            if full.predict(&e.text).map(|p| p.intent)
+                == small.predict(&e.text).map(|p| p.intent)
+            {
+                agree += 1;
+            }
+        }
+        assert_eq!(
+            agree,
+            holdout.len(),
+            "quantising changed {} of {} answers",
+            holdout.len() - agree,
+            holdout.len()
+        );
+        assert_eq!(small.accuracy(&holdout), full.accuracy(&holdout));
+    }
+
+    #[test]
+    fn the_compact_form_is_a_quarter_the_size() {
+        let full = trained();
+        let small = full.to_compact();
+        assert!(
+            small.size_bytes() * 3 < full.size_bytes(),
+            "{} against {}",
+            small.size_bytes(),
+            full.size_bytes()
+        );
+    }
+
+    #[test]
+    fn the_compact_form_round_trips_through_json() {
+        let full = trained();
+        let json = full.to_compact().to_json().unwrap();
+        let back = Compact::from_json(&json).unwrap().expand();
+        for text in ["stop caddy", "شغل النموذج", "what is running"] {
+            assert_eq!(
+                full.predict(text).map(|p| p.intent),
+                back.predict(text).map(|p| p.intent),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_all_zero_model_quantises_without_dividing_by_zero() {
+        // It cannot classify anything, but it must round-trip rather than
+        // produce NaN and answer at random.
+        let blank = Classifier::blank(Intent::ALL.len());
+        let back = blank.to_compact().expand();
+        let p = back.predict("stop caddy").expect("features exist");
+        assert!(p.confidence.is_finite(), "confidence is {}", p.confidence);
     }
 
     #[test]
