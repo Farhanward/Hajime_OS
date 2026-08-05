@@ -108,7 +108,7 @@ jobs:
             # been renamed in the ports tree, it fails here rather than on the
             # server.
             pkg install -y postgresql17-server postgresql17-client \
-                           mariadb106-server mariadb106-client redis caddy
+                           mariadb1011-server mariadb1011-client redis caddy
 
             echo
             echo "===== 8. postgres: initdb and a real query ====="

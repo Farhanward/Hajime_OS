@@ -187,12 +187,12 @@ run install -d -o root -g "$HAJIME_USER" -m 750 "$HAJIME_ETC" \
 step "packages"
 
 # postgresql17 matches the version Postiz ran, so its dump restores without a
-# version jump. mariadb106 matches LiteCart and Nginx Proxy Manager.
+# version jump. mariadb1011 matches LiteCart and Nginx Proxy Manager.
 # No openssl here: FreeBSD's base system ships /usr/bin/openssl, which is all
 # the token generation below needs. Installing the port puts a second, usually
 # different, openssl in /usr/local/bin and is a well-known way to end up with
 # ports linked against one version and running against another.
-PKGS="postgresql17-server postgresql17-client mariadb106-server mariadb106-client \
+PKGS="postgresql17-server postgresql17-client mariadb1011-server mariadb1011-client \
 redis caddy cloudflared ca_root_nss curl"
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
@@ -439,7 +439,7 @@ fi
 
 # mariadb builds its system tables on first start, so it needs no equivalent
 # step. What it does need is a data directory it owns.
-if ! pkg info -e mariadb106-server 2>/dev/null; then
+if ! pkg info -e mariadb1011-server 2>/dev/null; then
     warn "mariadb is not installed, so its data directory is not created"
 elif [ "$DRY" -eq 1 ]; then
     say "   would  create /var/db/mysql"
