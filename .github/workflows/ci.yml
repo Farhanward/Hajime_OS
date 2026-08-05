@@ -1,0 +1,157 @@
+name: build and test
+
+# The FreeBSD job is the point of this file. Everything here was developed on
+# Windows and verified in a local FreeBSD guest that had no route to the
+# internet, so two things stayed untested: `pkg install`, and anything needing a
+# database. A runner with a working network closes exactly that gap.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: linux, fast feedback
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --workspace --verbose
+
+      - name: test
+        run: cargo test --workspace --verbose
+
+      # Warnings are errors here rather than a note nobody reads. The workspace
+      # is at zero, so the first one to appear is the one that gets fixed.
+      - name: no warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: line endings
+        # FreeBSD's sh rejects a CRLF script with a syntax error naming the
+        # wrong line, and Git Bash tolerates it, so this only ever fails on the
+        # target. It has bitten twice.
+        run: |
+          bad=$(find . -name '*.sh' -o -path '*/rc.d/*' -type f | xargs file | grep -i crlf || true)
+          if [ -n "$bad" ]; then echo "CRLF found:"; echo "$bad"; exit 1; fi
+          echo "all scripts are LF"
+
+  freebsd:
+    name: freebsd 14, with a network
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build, test, and install on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          # The same release the server will run. The action defaults to 14.2,
+          # which the installer refuses as end-of-life, so pinning this keeps
+          # the CI exercising the path the real machine takes.
+          release: '14.4'
+          usesh: true
+          # The installer needs the packages it manages, and the whole reason
+          # for this job is that they can actually be fetched here.
+          prepare: |
+            pkg install -y rust git llvm19 sudo
+
+          run: |
+            set -e
+            echo "===== 1. the platform ====="
+            freebsd-version -r
+            uname -m
+
+            echo
+            echo "===== 2. build ====="
+            cargo build --release --workspace
+
+            echo
+            echo "===== 3. test ====="
+            cargo test --release --workspace
+
+            echo
+            echo "===== 4. every shipped script parses under FreeBSD sh ====="
+            fail=0
+            for f in $(find . -name '*.sh') $(ls hajime-*/rc.d/* 2>/dev/null); do
+              printf '%-46s ' "$f"
+              if sh -n "$f"; then echo ok; else echo FAILED; fail=1; fi
+            done
+            [ "$fail" -eq 0 ] || exit 1
+
+            echo
+            echo "===== 5. jail.conf parses ====="
+            jail -f hajime-jails/jail.conf -e ';' | head -3
+
+            echo
+            echo "===== 6. the installer, dry run ====="
+            # The runner has no ZFS pool, so preflight refuses and the dry run
+            # exits non-zero by design. It still prints the whole plan, which is
+            # what makes it worth running: a blocker in any later phase shows up
+            # here rather than at the first one.
+            sh install_hajime_os.sh --dry-run --skip-build || true
+
+            echo
+            echo "===== 7. the packages the installer manages ====="
+            # The gap this job exists for. If a package name is wrong or has
+            # been renamed in the ports tree, it fails here rather than on the
+            # server.
+            pkg install -y postgresql17-server postgresql17-client \
+                           mariadb106-server mariadb106-client redis caddy
+
+            echo
+            echo "===== 8. postgres: initdb and a real query ====="
+            service postgresql initdb
+            service postgresql start
+            sleep 5
+            su -m postgres -c 'psql -tAc "select version()"' | head -1
+
+            echo
+            echo "===== 9. mariadb: start and a real query ====="
+            sysrc mysql_enable=YES
+            service mysql-server start
+            sleep 10
+            # `mariadb` is the client's own name; `mysql` is a compatibility
+            # link that has come and gone between versions. Try both.
+            mariadb -u root -e 'select version()' 2>/dev/null \
+              || mysql -u root -e 'select version()' 2>&1 | head -2
+
+            echo
+            echo "===== 10. redis ====="
+            sysrc redis_enable=YES
+            service redis start
+            sleep 3
+            redis-cli ping
+
+            echo
+            echo "===== 11. the model, trained here ====="
+            ./target/release/hajime-model accuracy
+            ./target/release/hajime-model ask "what is running" || true
+
+            echo
+            echo "===== 12. hajimectl against real databases ====="
+            install -m 755 target/release/hajimectl /usr/local/bin/
+            hajimectl status || true
+            hajimectl check || true
+
+  # A machine that is neither the development box nor the target, to catch
+  # anything that only works because of where it was written.
+  windows:
+    name: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
