@@ -20,8 +20,16 @@ pub enum Tier {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Service {
-    /// The `rc.d` script name, which is also how it is addressed on the CLI.
+    /// How the service is addressed everywhere a person types it: the CLI,
+    /// the console, the model's vocabulary.
     pub name: &'static str,
+    /// The `rc.d` script, when it differs from the name.
+    ///
+    /// It usually does not, so this is `None` for almost everything. MariaDB is
+    /// the exception that made the field necessary: its port installs
+    /// `mysql-server` while its rcvar is `mysql_enable`, so calling
+    /// `service mysql start` finds nothing at all.
+    pub rc_script: Option<&'static str>,
     pub description: &'static str,
     pub tier: Tier,
     /// Where it listens, when it listens at all.
@@ -34,6 +42,11 @@ pub struct Service {
 }
 
 impl Service {
+    /// The name to hand to `service(8)`.
+    pub fn rc_name(&self) -> &'static str {
+        self.rc_script.unwrap_or(self.name)
+    }
+
     pub fn health_url(&self) -> Option<String> {
         match (self.port, self.health_path) {
             (Some(p), Some(path)) => Some(format!("http://127.0.0.1:{p}{path}")),
@@ -53,6 +66,7 @@ impl Service {
 pub const SERVICES: &[Service] = &[
     Service {
         name: "postgresql",
+        rc_script: None,
         description: "PostgreSQL, the database behind the workflow store",
         tier: Tier::Essential,
         port: Some(5432),
@@ -61,6 +75,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "mysql",
+        rc_script: Some("mysql-server"),
         description: "MariaDB, the shop database",
         tier: Tier::Essential,
         port: Some(3306),
@@ -69,6 +84,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "redis",
+        rc_script: None,
         description: "Redis, cache and queues",
         tier: Tier::Essential,
         port: Some(6379),
@@ -77,6 +93,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "caddy",
+        rc_script: None,
         description: "Caddy, reverse proxy and TLS",
         tier: Tier::Essential,
         port: Some(80),
@@ -85,6 +102,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "cloudflared",
+        rc_script: None,
         description: "Cloudflare tunnel: the only path in from outside",
         tier: Tier::Essential,
         port: None,
@@ -93,6 +111,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "hajime_workflow",
+        rc_script: None,
         description: "Workflow engine: schedules and webhooks",
         tier: Tier::Essential,
         port: Some(5678),
@@ -101,6 +120,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "hajime_wa",
+        rc_script: None,
         description: "WhatsApp gateway",
         tier: Tier::Optional,
         port: Some(3000),
@@ -109,6 +129,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "hajime_wa_bridge",
+        rc_script: None,
         description: "WhatsApp protocol bridge, holds the device session",
         tier: Tier::Optional,
         port: Some(3001),
@@ -117,6 +138,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "hajime_ai",
+        rc_script: None,
         description: "Model gateway and tool gateway",
         tier: Tier::Optional,
         port: Some(11434),
@@ -125,6 +147,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         name: "llamacpp",
+        rc_script: None,
         description: "Inference engine. By far the largest single consumer",
         tier: Tier::Optional,
         port: Some(11435),
@@ -159,6 +182,36 @@ pub fn reclaimable_mb() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rc_script_is_the_name_unless_the_port_disagrees() {
+        // CI caught this in one line of `hajimectl status`:
+        //
+        //     mysql   essential  3306   listening, not via rc
+        //
+        // The port was open and rc did not know the service, because MariaDB's
+        // port installs `mysql-server` while its rcvar is `mysql_enable`.
+        // `hajimectl start mysql` would have failed on the real machine.
+        let mysql = find("mysql").expect("mysql is in the table");
+        assert_eq!(mysql.rc_name(), "mysql-server");
+        assert_eq!(mysql.name, "mysql", "the name people type does not change");
+
+        // Everything else addresses rc by its own name.
+        for s in start_order().filter(|s| s.name != "mysql") {
+            assert_eq!(s.rc_name(), s.name, "{} has an unexpected rc script", s.name);
+        }
+    }
+
+    #[test]
+    fn no_two_services_share_an_rc_script() {
+        // Two entries pointing at one script would make starting either start
+        // both, and stopping either stop both.
+        let scripts: Vec<&str> = start_order().map(|s| s.rc_name()).collect();
+        let mut sorted = scripts.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), scripts.len(), "duplicated rc script in {scripts:?}");
+    }
 
     #[test]
     fn every_service_has_a_unique_name() {

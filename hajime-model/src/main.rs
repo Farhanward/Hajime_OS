@@ -84,7 +84,7 @@ fn running_now() -> Vec<&'static str> {
     hajime_sys::service::start_order()
         .filter(|s| {
             std::process::Command::new("service")
-                .args([s.name, "onestatus"])
+                .args([s.rc_name(), "onestatus"])
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false)
