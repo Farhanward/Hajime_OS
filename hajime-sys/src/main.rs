@@ -66,7 +66,7 @@ fn cmd_status() -> ExitCode {
     let mut down_essential = 0;
 
     for s in service::start_order() {
-        let running = rc_status(s.name);
+        let running = rc_status(s.rc_name());
         let listening = s.port.map(|p| readiness::port_open(p, std::time::Duration::from_millis(500)));
         let state = match (running, listening) {
             (true, Some(true)) | (true, None) => "up",
@@ -112,11 +112,11 @@ fn cmd_start(only: Option<&str>) -> ExitCode {
         if only.is_some_and(|n| n != s.name) {
             continue;
         }
-        if rc_status(s.name) {
+        if rc_status(s.rc_name()) {
             println!("  already up   {}", s.name);
             continue;
         }
-        match rc_do(s.name, "start") {
+        match rc_do(s.rc_name(), "start") {
             Ok(()) => println!("  started      {}", s.name),
             Err(e) => {
                 failed += 1;
@@ -133,7 +133,7 @@ fn cmd_stop(only: Option<&str>) -> ExitCode {
         if only.is_some_and(|n| n != s.name) {
             continue;
         }
-        match rc_do(s.name, "stop") {
+        match rc_do(s.rc_name(), "stop") {
             Ok(()) => println!("  stopped      {}", s.name),
             Err(e) => println!("  note         {}: {e}", s.name),
         }
@@ -190,7 +190,7 @@ fn cmd_save() -> ExitCode {
     println!("the sites stay up: nothing essential is touched\n");
 
     for s in optional.iter().rev() {
-        match rc_do(s.name, "stop") {
+        match rc_do(s.rc_name(), "stop") {
             Ok(()) => println!("  stopped      {}  (~{} MB)", s.name, s.typical_mb),
             Err(e) => println!("  note         {}: {e}", s.name),
         }
@@ -202,7 +202,7 @@ fn cmd_save() -> ExitCode {
 fn cmd_resume() -> ExitCode {
     let mut failed = 0;
     for s in service::optional() {
-        match rc_do(s.name, "start") {
+        match rc_do(s.rc_name(), "start") {
             Ok(()) => println!("  started      {}", s.name),
             Err(e) => {
                 failed += 1;

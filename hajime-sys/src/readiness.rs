@@ -201,6 +201,7 @@ mod tests {
     fn svc(name: &'static str, port: u16, tier: Tier) -> Service {
         Service {
             name,
+            rc_script: None,
             description: "test",
             tier,
             port: Some(port),
@@ -327,6 +328,7 @@ mod tests {
     fn a_service_without_a_port_is_skipped_rather_than_guessed_at() {
         let tunnel = Service {
             name: "cloudflared",
+            rc_script: None,
             description: "tunnel",
             tier: Tier::Essential,
             port: None,
