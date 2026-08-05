@@ -27,6 +27,7 @@ pub mod corpus;
 pub mod execute;
 pub mod features;
 pub mod plan;
+pub mod repair;
 pub mod slots;
 pub mod world;
 
