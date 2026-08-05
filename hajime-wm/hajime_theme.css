@@ -1,0 +1,245 @@
+/* Hajime GTK theme.
+ *
+ * Applies to the panel, the file manager and every GTK application, so the
+ * desktop reads as one machine.
+ *
+ * The palette is taken from the logo: a cream CRT screen in a warm wooden
+ * bezel, navy ink, pink accents. The version this replaces used cyan and gold
+ * on near-black, which is a different computer's idea of a terminal and sat
+ * badly beside the mascot it was meant to match.
+ *
+ * Install as ~/.config/gtk-3.0/gtk.css and ~/.config/gtk-4.0/gtk.css
+ */
+
+@define-color screen      #f5deb0;
+@define-color screen_lit  #ffe8c0;
+@define-color screen_dim  #e8cd9a;
+
+@define-color bezel       #c08a6a;
+@define-color bezel_light #d9a382;
+@define-color bezel_dark  #8a5f47;
+
+@define-color ink         #1a1f4d;
+@define-color ink_soft    #3d4478;
+@define-color ink_faint   #7178a8;
+
+@define-color blush       #f0a8a8;
+@define-color blush_deep  #d97f83;
+@define-color room        #4a3f42;
+
+@define-color good        #4a7c59;
+@define-color warn        #c8873a;
+@define-color bad         #b4453f;
+
+window, .background {
+  background-color: @screen;
+  color: @ink;
+  font-family: monospace;
+  font-size: 11pt;
+}
+
+/* Window frames --------------------------------------------------------- */
+
+/* The bezel, in wood rather than brushed metal. Square corners throughout:
+ * a pixel grid has no radius, and rounding one edge makes the rest look
+ * accidental. */
+window.ssd headerbar, .titlebar, .window-frame {
+  background-color: @bezel;
+  background-image: none;
+  color: @screen_lit;
+  border: 3px solid black;
+  border-radius: 0;
+  box-shadow: inset 0 2px 0 @bezel_light, inset 0 -2px 0 @bezel_dark;
+  text-shadow: 1px 1px 0 @bezel_dark;
+  font-weight: bold;
+  min-height: 28px;
+}
+window.ssd headerbar:backdrop, .titlebar:backdrop {
+  background-color: @bezel_dark;
+  color: @screen_dim;
+}
+
+/* Titlebar buttons keep the analog-switch feel of the original, in the
+ * logo's colours rather than gold. */
+.window-controls button, .titlebutton {
+  background-color: @screen_lit;
+  background-image: none;
+  border: 2px solid black;
+  border-radius: 0;
+  box-shadow: inset -2px -2px 0 @screen_dim, inset 2px 2px 0 #ffffff;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 3px 2px;
+  color: @ink;
+}
+.window-controls button:hover { background-color: #ffffff; }
+.window-controls button:active {
+  box-shadow: inset 2px 2px 0 @bezel_dark, inset -2px -2px 0 #ffffff;
+}
+.window-controls button.close, .titlebutton.close {
+  background-color: @blush;
+  color: @ink;
+}
+.window-controls button.close:hover { background-color: @blush_deep; }
+
+/* Controls -------------------------------------------------------------- */
+
+button, entry, notebook, frame, popover, menu, .view, treeview, scrollbar {
+  border-radius: 0;
+}
+
+button {
+  background-color: @screen_lit;
+  background-image: none;
+  color: @ink;
+  border: 2px solid black;
+  box-shadow: inset -2px -2px 0 @screen_dim, inset 2px 2px 0 #ffffff;
+  padding: 4px 10px;
+  min-height: 22px;
+}
+button:hover { background-color: #ffffff; }
+/* Pressed inverts the bevel, the way a physical key does. */
+button:active, button:checked {
+  background-color: @screen_dim;
+  box-shadow: inset 2px 2px 0 @bezel_dark, inset -2px -2px 0 #ffffff;
+}
+button:disabled {
+  color: @ink_faint;
+  background-color: @screen;
+  box-shadow: none;
+}
+
+entry, textview, .view {
+  background-color: @screen_lit;
+  color: @ink;
+  border: 2px solid black;
+  box-shadow: inset 2px 2px 0 @screen_dim;
+  padding: 4px 6px;
+  caret-color: @ink;
+}
+entry:focus { background-color: #ffffff; }
+selection, ::selection { background-color: @ink; color: @screen_lit; }
+
+/* File manager ---------------------------------------------------------- */
+
+treeview.view { background-color: @screen_lit; border: 0; }
+treeview.view:selected { background-color: @ink; color: @screen_lit; }
+treeview.view:hover { background-color: @screen_dim; }
+treeview.view header button {
+  background-color: @bezel;
+  color: @screen_lit;
+  border: 0;
+  border-right: 2px solid black;
+  border-bottom: 2px solid black;
+  box-shadow: none;
+  text-shadow: 1px 1px 0 @bezel_dark;
+}
+
+/* A navigation sidebar rather than a classic taskbar. */
+.sidebar, placessidebar {
+  background-color: @bezel;
+  color: @screen_lit;
+  border-right: 3px solid black;
+}
+.sidebar row:selected, placessidebar row:selected {
+  background-color: @bezel_dark;
+  color: @screen_lit;
+}
+.sidebar row:hover { background-color: @bezel_light; }
+
+/* Panel and start button ------------------------------------------------ */
+
+#taskbar, #panel, .wf-panel {
+  background-color: @bezel;
+  color: @screen_lit;
+  border-bottom: 3px solid black;
+  box-shadow: inset 0 2px 0 @bezel_light;
+  min-height: 32px;
+  font-weight: bold;
+}
+
+/* The Arabic start button, kept from the original design. Its font stack
+ * names real Arabic faces first: a monospace fallback would render the
+ * label with broken joining. */
+#start-button {
+  background-color: @screen_lit;
+  color: @ink;
+  font-family: "Noto Naskh Arabic", "Amiri", "Scheherazade New", sans-serif;
+  font-weight: bold;
+  border: 2px solid black;
+  border-radius: 0;
+  box-shadow: inset -2px -2px 0 @screen_dim, inset 2px 2px 0 #ffffff;
+  padding: 3px 14px;
+  margin: 3px;
+}
+#start-button:hover { background-color: #ffffff; }
+#start-button:active {
+  background-color: @blush;
+  box-shadow: inset 2px 2px 0 @bezel_dark;
+}
+
+#panel button, .wf-panel button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: @screen_lit;
+  padding: 2px 8px;
+}
+#panel button:hover { background-color: @bezel_light; }
+
+/* Menus ----------------------------------------------------------------- */
+
+menu, popover, .menu, .popup {
+  background-color: @screen_lit;
+  color: @ink;
+  border: 3px solid black;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, .4);
+  padding: 2px;
+}
+menuitem:hover, .menu menuitem:hover {
+  background-color: @ink;
+  color: @screen_lit;
+}
+separator { background-color: @ink_faint; min-height: 1px; min-width: 1px; }
+
+/* Chunky square scrollbars, like a machine with physical parts. */
+scrollbar { background-color: @screen_dim; border: 0; }
+scrollbar slider {
+  background-color: @bezel;
+  border: 2px solid black;
+  border-radius: 0;
+  min-width: 12px;
+  min-height: 12px;
+}
+scrollbar slider:hover { background-color: @bezel_light; }
+
+progressbar trough {
+  background-color: @screen_dim;
+  border: 2px solid black;
+  min-height: 14px;
+}
+progressbar progress { background-color: @blush_deep; border: 0; min-height: 14px; }
+
+tooltip { background-color: @ink; color: @screen_lit; border: 2px solid black; }
+
+/* State colours match the console exactly, so the two never disagree about
+ * what red means. */
+.error, .destructive-action { color: @bad; }
+.warning                    { color: @warn; }
+.success, .suggested-action { color: @good; }
+
+/* The scanline overlay lives in a wayfire shader, not here: GTK draws inside
+ * windows, and the effect belongs across the whole screen. This rule is the
+ * fallback for a widget that wants it locally. */
+.crt-overlay {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(26, 31, 77, .06) 0 1px,
+    transparent 1px 3px
+  );
+  background-size: 100% 3px;
+}
+
+/* Arabic is read here as often as English; the desktop must mirror cleanly. */
+:dir(rtl) headerbar { text-shadow: -1px 1px 0 @bezel_dark; }
+:dir(rtl) .sidebar { border-right: 0; border-left: 3px solid black; }

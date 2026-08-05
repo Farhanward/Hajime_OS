@@ -1,0 +1,16 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# أسرار ونسخ احتياطية: لا تُرفع أبداً
+*.env
+.env
+*.key
+*.pem
+/vault/
+*_backup*/
+*.sql
+*.dump
+
+# ملفات وسيطة
+*.metadata.json
