@@ -53,7 +53,20 @@ say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
 ok()   { printf '   ok    %s\n' "$*"; }
 warn() { printf '   warn  %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
-die()  { printf '\n   REFUSED: %s\n' "$*" >&2; exit 1; }
+# A real run stops at the first blocker. A dry run notes it and keeps going: the
+# point of a dry run is to see the whole plan, and one that halts on the first
+# problem hides the four behind it. Same rule as install_hajime_os.sh, which
+# this script did not follow until it was pointed out.
+BLOCKERS=0
+die() {
+    if [ "$DRY" -eq 1 ]; then
+        printf '   WOULD REFUSE: %s\n' "$*"
+        BLOCKERS=$((BLOCKERS + 1))
+        return 0
+    fi
+    printf '\n   REFUSED: %s\n' "$*" >&2
+    exit 1
+}
 
 run() {
     if [ "$DRY" -eq 1 ]; then
@@ -97,8 +110,10 @@ write_block() {
 
 put() {
     src="$1"; dest="$2"; mode="${3:-644}"
-    [ -f "$src" ] || die "missing generated file: ${src}
-            Run: python hajime-brand/tools/emit.py"
+    # The `return` matters now that die comes back in a dry run: without it the
+    # next line would print "would install" for a file that is not there.
+    [ -f "$src" ] || { die "missing generated file: ${src}
+            Run: python hajime-brand/tools/emit.py"; return 1; }
     keep_original "$dest"
     run install -m "$mode" "$src" "$dest" || return 1
     return 0
@@ -286,6 +301,13 @@ fi
 step "next"
 if [ "$DRY" -eq 1 ]; then
     say "   Dry run complete; nothing was changed."
+    say "   ${WARNINGS} warning(s), ${BLOCKERS} blocker(s)."
+    if [ "$BLOCKERS" -gt 0 ]; then
+        say ""
+        say "   A real run would stop at the first WOULD REFUSE above."
+        exit 1
+    fi
+    say "   A real run would proceed."
     exit 0
 fi
 

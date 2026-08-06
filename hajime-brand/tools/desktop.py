@@ -25,18 +25,34 @@ import ui
 BASE = scenes.BASE
 K = scenes.K
 
-# The launchers down the left edge: a Lucide name and the two labels it is read
-# under. Both languages appear because the system is localised, not because the
-# words are painted into the picture -- on the running desktop these come from
-# the locale and the .desktop files, the same way they do on any other system.
-LAUNCHERS = [
-    ("folder", "الملفات", "Files"),
-    ("file-text", "مفكرة", "Notes"),
-    ("palette", "الرسام", "Paint"),
-    ("globe", "المتصفح", "Browser"),
-    ("terminal", "الطرفية", "Terminal"),
-    ("settings", "الإعدادات", "Settings"),
-]
+def launchers() -> list[tuple[str, str, str]]:
+    """The launchers down the left edge, read from the launchers themselves.
+
+    This list used to be typed here, and it named six applications while the
+    installer shipped three: a picture of a desktop with a paint program on it
+    that nothing would ever open. Reading ../desktop/*.desktop instead means the
+    artwork cannot promise something the machine does not have -- add a launcher
+    and it appears, remove one and it goes.
+
+    Both languages come from the same file the panel reads at run time, so what
+    the picture shows in Arabic is what the Arabic session will show.
+    """
+    found = []
+    for path in sorted((scenes.px.ROOT / "desktop").glob("*.desktop")):
+        fields = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                key, _, value = line.partition("=")
+                fields[key.strip()] = value.strip()
+        icon = fields.get("X-Hajime-Icon")
+        name = fields.get("Name")
+        name_ar = fields.get("Name[ar]")
+        if icon and name and name_ar:
+            found.append((icon, name_ar, name))
+    return found
+
+
+LAUNCHERS = launchers()
 
 # Both windows sit left of centre so the robot on the wallpaper stays visible.
 # A picture of a desktop that buries the wallpaper's subject is a picture of a
