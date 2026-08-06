@@ -82,7 +82,13 @@ sh hajime-jails/create_jails.sh
 ```bash
 python hajime-brand/tools/emit.py           # يكتب out/
 python hajime-brand/tools/emit.py --check   # يفشل إن انحرف المولَّد عن المرفوع
+sh hajime-brand/verify_theme.sh             # على الجهاز: ما الذي فيه فعلاً
 ```
+
+الأخير هو ما يثبت أن الثيم في أصل النظام لا فوقه. لكل بند يقول **live** أو
+**written** أو **missing**: سطر في `loader.conf` يثبت أن أحداً كتبه، أما `kenv`
+فيقرأ البيئة التي سلّمها المُقلِع للنواة قبل أن يوجد userland. ويقارن الألوان
+الستة عشر في النواة بـ `palette.toml` واحداً واحداً.
 
 اللغة إعداد نظام لا نص مرسوم في صورة. المثبّت يضيف صفَّي دخول، والتبديل بينهما:
 
