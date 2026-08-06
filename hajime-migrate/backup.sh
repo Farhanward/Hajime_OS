@@ -23,7 +23,16 @@ set -uo pipefail
 HOST="${HOST:-192.168.100.59}"
 USER="${SSH_USER:-root}"
 KEY="${KEY:-$HOME/.ssh/carbonflow_key}"
-STAGE="/tmp/hajime_backup_$$"
+# Where the archive is assembled on the server before it is pulled across.
+#
+# /tmp is the obvious choice and the wrong one on this host: it is a 1 GB tmpfs,
+# which means staging half a gigabyte there spends the machine's memory, and
+# this machine was already 4 GB into swap when it was first surveyed. The check
+# below measures the filesystem rather than trusting the default.
+#
+#   STAGE_ROOT=/vault/stage ./backup.sh /d/backups
+STAGE_ROOT="${STAGE_ROOT:-/tmp}"
+STAGE="$STAGE_ROOT/hajime_backup_$$"
 
 DEST="${1:-}"
 if [ -z "$DEST" ]; then
@@ -76,6 +85,19 @@ log "free space at destination: $((AVAIL_KB / 1024)) MB"
 ssh_do "mkdir -p $STAGE/db $STAGE/configs $STAGE/volumes $STAGE/appdata" \
     || fail "cannot create staging directory on server"
 
+# The staging filesystem has to hold the whole archive before any of it moves.
+# Running out halfway leaves a partial tar for the checksum step to fail on,
+# after an hour of work, on a machine that may have filled its root disk on the
+# way there.
+STAGE_KB=$(ssh_do "df -Pk '$STAGE' | awk 'NR==2 {print \$4}'")
+if [ "${STAGE_KB:-0}" -lt 2097152 ]; then
+    fail "the staging filesystem at ${STAGE_ROOT} has $((STAGE_KB / 1024)) MB free.
+       That is not enough to assemble the archive, and on this host /tmp is a
+       1 GB tmpfs, so filling it spends memory rather than disk.
+       Point it at real storage:  STAGE_ROOT=/vault/hajime_stage $0 $DEST"
+fi
+log "staging at $STAGE ($((STAGE_KB / 1024)) MB free)"
+
 # --- 1. databases ----------------------------------------------------------
 # Logical dumps, taken through each engine's own tool. Copying data files from
 # a running database gives a torn snapshot.
@@ -95,42 +117,83 @@ dump_mariadb() {
     log "  ${size} bytes"
 }
 
-dump_mariadb carbonflow-litecart-db mariadb_litecart.sql
-dump_mariadb carbonflow-npm-db      mariadb_npm.sql
+# A container that is gone is not a failure; a container that is there and will
+# not dump is. The stack has shrunk since this script was written -- the whole
+# Postiz group was retired -- and without that distinction one absent container
+# aborted the entire backup before it reached the volumes, the secrets or /opt.
+# The data those containers held is still inside the volume archive either way.
+# Running, not merely present. `docker inspect` succeeds for a stopped
+# container, so the first version of this check waved postiz-postgres through
+# and the dump died against a container that exists and is switched off. A
+# stopped container's data is in its volume, which the volume archive takes.
+present() {
+    state=$(ssh_do "docker inspect --format '{{.State.Running}}' '$1' 2>/dev/null")
+    [ "$state" = "true" ]
+}
 
-log "postgres: postiz-postgres"
-ssh_do "docker exec postiz-postgres sh -c 'pg_dumpall -U \"\$POSTGRES_USER\"' \
-        > $STAGE/db/postgresql_all.sql" \
-    || fail "pg_dumpall failed"
-PG_SIZE=$(ssh_do "wc -c < $STAGE/db/postgresql_all.sql")
-[ "$PG_SIZE" -gt 1024 ] || fail "postgres dump is only ${PG_SIZE} bytes"
-log "  ${PG_SIZE} bytes"
+for pair in "carbonflow-litecart-db mariadb_litecart.sql" \
+            "carbonflow-npm-db mariadb_npm.sql"; do
+    # shellcheck disable=SC2086
+    set -- $pair
+    if present "$1"; then
+        dump_mariadb "$1" "$2"
+    else
+        log "mariadb: $1 is not on this host, skipped"
+    fi
+done
 
-log "redis: postiz-redis"
-ssh_do "docker exec postiz-redis redis-cli --no-auth-warning BGSAVE >/dev/null 2>&1; \
-        sleep 3; docker cp postiz-redis:/data/dump.rdb $STAGE/db/redis_postiz.rdb" \
-    || log "  WARNING: redis snapshot unavailable (cache only, not fatal)"
+if present postiz-postgres; then
+    log "postgres: postiz-postgres"
+    ssh_do "docker exec postiz-postgres sh -c 'pg_dumpall -U \"\$POSTGRES_USER\"' \
+            > $STAGE/db/postgresql_all.sql" \
+        || fail "pg_dumpall failed"
+    PG_SIZE=$(ssh_do "wc -c < $STAGE/db/postgresql_all.sql")
+    [ "$PG_SIZE" -gt 1024 ] || fail "postgres dump is only ${PG_SIZE} bytes"
+    log "  ${PG_SIZE} bytes"
+else
+    log "postgres: postiz-postgres is not running on this host, skipped"
+    log "  its volume is still captured with the rest of /vault/docker/volumes"
+fi
+
+if present postiz-redis; then
+    log "redis: postiz-redis"
+    ssh_do "docker exec postiz-redis redis-cli --no-auth-warning BGSAVE >/dev/null 2>&1; \
+            sleep 3; docker cp postiz-redis:/data/dump.rdb $STAGE/db/redis_postiz.rdb" \
+        || log "  WARNING: redis snapshot unavailable (cache only, not fatal)"
+else
+    log "redis: postiz-redis is not running on this host, skipped"
+fi
 
 # n8n keeps workflows in SQLite. Its own exporter yields JSON, which survives an
 # engine change and doubles as the import format for hajime-workflow.
-log "n8n: workflow and credential export"
-ssh_do "docker exec carbonflow-n8n n8n export:workflow --all \
-        --output=/tmp/n8n_workflows.json >/dev/null 2>&1 && \
-        docker cp carbonflow-n8n:/tmp/n8n_workflows.json $STAGE/db/" \
-    || fail "n8n workflow export failed"
-ssh_do "docker exec carbonflow-n8n n8n export:credentials --all --decrypted \
-        --output=/tmp/n8n_credentials.json >/dev/null 2>&1 && \
-        docker cp carbonflow-n8n:/tmp/n8n_credentials.json $STAGE/db/ && \
-        docker exec carbonflow-n8n rm -f /tmp/n8n_credentials.json" \
-    || log "  WARNING: credential export failed, re-enter credentials by hand"
-# The raw SQLite file as a second line of defence.
-ssh_do "docker cp carbonflow-n8n:/home/node/.n8n/database.sqlite $STAGE/db/n8n_database.sqlite" \
-    || log "  WARNING: raw n8n sqlite copy failed"
-log "  n8n exported"
+if present carbonflow-n8n; then
+    log "n8n: workflow and credential export"
+    ssh_do "docker exec carbonflow-n8n n8n export:workflow --all \
+            --output=/tmp/n8n_workflows.json >/dev/null 2>&1 && \
+            docker cp carbonflow-n8n:/tmp/n8n_workflows.json $STAGE/db/" \
+        || fail "n8n workflow export failed"
+    ssh_do "docker exec carbonflow-n8n n8n export:credentials --all --decrypted \
+            --output=/tmp/n8n_credentials.json >/dev/null 2>&1 && \
+            docker cp carbonflow-n8n:/tmp/n8n_credentials.json $STAGE/db/ && \
+            docker exec carbonflow-n8n rm -f /tmp/n8n_credentials.json" \
+        || log "  WARNING: credential export failed, re-enter credentials by hand"
+    # The raw SQLite file as a second line of defence.
+    ssh_do "docker cp carbonflow-n8n:/home/node/.n8n/database.sqlite \
+            $STAGE/db/n8n_database.sqlite" \
+        || log "  WARNING: raw n8n sqlite copy failed"
+    log "  n8n exported"
+else
+    log "n8n: carbonflow-n8n is not on this host, skipped"
+fi
 
-log "uptime-kuma: sqlite"
-ssh_do "docker cp carbonflow-uptime-kuma:/app/data/kuma.db $STAGE/db/uptime_kuma.db 2>/dev/null" \
-    || log "  WARNING: uptime-kuma database not captured"
+if present carbonflow-uptime-kuma; then
+    log "uptime-kuma: sqlite"
+    ssh_do "docker cp carbonflow-uptime-kuma:/app/data/kuma.db \
+            $STAGE/db/uptime_kuma.db 2>/dev/null" \
+        || log "  WARNING: uptime-kuma database not captured"
+else
+    log "uptime-kuma: not on this host, skipped"
+fi
 
 # --- 2. configuration and secrets -----------------------------------------
 # The part the previous backup left empty. None of this is recreatable.
@@ -227,9 +290,27 @@ else
     BAD=0
 fi
 
-for required in db/mariadb_litecart.sql db/mariadb_npm.sql db/postgresql_all.sql \
-                db/n8n_workflows.json configs/opt.tar.gz configs/vault_secrets.tar.gz \
-                volumes/docker_volumes.tar.gz appdata/vault_data.tar.gz; do
+# What must be here is what was attempted, not what the stack looked like when
+# this script was written. A dump skipped because its container is switched off
+# is not a missing file; demanding it anyway fails a backup that is complete and
+# tells the operator not to trust 251 MB of good data.
+REQUIRED="configs/opt.tar.gz configs/vault_secrets.tar.gz \
+          volumes/docker_volumes.tar.gz appdata/vault_data.tar.gz"
+for item in "carbonflow-litecart-db db/mariadb_litecart.sql" \
+            "carbonflow-npm-db db/mariadb_npm.sql" \
+            "postiz-postgres db/postgresql_all.sql" \
+            "carbonflow-n8n db/n8n_workflows.json"; do
+    # shellcheck disable=SC2086
+    set -- $item
+    if present "$1"; then
+        REQUIRED="$REQUIRED $2"
+    else
+        log "not required: $2 (its container is not running)"
+    fi
+done
+
+# shellcheck disable=SC2086
+for required in $REQUIRED; do
     if [ ! -s "$OUT/$required" ]; then
         log "MISSING or EMPTY: $required"
         VERIFY_FAILED=1
