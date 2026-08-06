@@ -5,7 +5,9 @@
 //! having a bad day, and a page that needs JavaScript to say "everything is
 //! down" is a page that says nothing when it matters.
 
+use crate::brand;
 use crate::collect::{Fetched, Reach, ServiceView};
+use crate::i18n::{Key, Lang};
 
 /// Escape text before it reaches HTML.
 ///
@@ -39,7 +41,7 @@ fn reach_chip(r: &Reach) -> String {
     }
 }
 
-pub fn services_panel(views: &[ServiceView]) -> String {
+pub fn services_panel(lang: Lang, views: &[ServiceView]) -> String {
     let rows: String = views
         .iter()
         .map(|v| {
@@ -71,7 +73,7 @@ pub fn services_panel(views: &[ServiceView]) -> String {
         })
         .collect();
 
-    panel("services", &rows)
+    panel(lang.t(Key::Services), &rows)
 }
 
 /// A panel whose data could not be collected explains itself.
@@ -83,7 +85,7 @@ fn unavailable(what: &str, why: &str) -> String {
     )
 }
 
-pub fn history_panel(fetched: &Fetched) -> String {
+pub fn history_panel(lang: Lang, fetched: &Fetched) -> String {
     let body = match fetched {
         Fetched::Unreachable => unavailable(
             "workflow history",
@@ -94,7 +96,10 @@ pub fn history_panel(fetched: &Fetched) -> String {
         Fetched::Ok { data: v } => {
             let recent = v.get("recent").and_then(|r| r.as_array()).map(Vec::as_slice);
             match recent {
-                None | Some([]) => r#"<p class="empty">no runs recorded yet</p>"#.to_string(),
+                None | Some([]) => format!(
+                    r#"<p class="empty">{}</p>"#,
+                    lang.t(Key::NoRuns)
+                ),
                 Some(rows) => {
                     let body: String = rows
                         .iter()
@@ -128,18 +133,23 @@ pub fn history_panel(fetched: &Fetched) -> String {
                         })
                         .collect();
                     format!(
-                        "<table><thead><tr><th>workflow</th><th>trigger</th>\
-                         <th>took</th><th>result</th><th>why</th></tr></thead>\
-                         <tbody>{body}</tbody></table>"
+                        "<table><thead><tr><th>{w}</th><th>{t}</th><th>{k}</th>\
+                         <th>{r}</th><th>{y}</th></tr></thead>\
+                         <tbody>{body}</tbody></table>",
+                        w = lang.t(Key::Workflow),
+                        t = lang.t(Key::Trigger),
+                        k = lang.t(Key::Took),
+                        r = lang.t(Key::Result),
+                        y = lang.t(Key::Why),
                     )
                 }
             }
         }
     };
-    panel("recent runs", &body)
+    panel(lang.t(Key::RecentRuns), &body)
 }
 
-pub fn audit_panel(fetched: &Fetched) -> String {
+pub fn audit_panel(lang: Lang, fetched: &Fetched) -> String {
     let body = match fetched {
         Fetched::Unreachable => unavailable(
             "tool audit",
@@ -151,7 +161,7 @@ pub fn audit_panel(fetched: &Fetched) -> String {
             let calls = v.get("calls").and_then(|c| c.as_array()).map(Vec::as_slice);
             match calls {
                 None | Some([]) => {
-                    r#"<p class="empty">the model has not used a tool yet</p>"#.to_string()
+                    format!(r#"<p class="empty">{}</p>"#, lang.t(Key::NoTools))
                 }
                 Some(rows) => {
                     let body: String = rows
@@ -177,17 +187,21 @@ pub fn audit_panel(fetched: &Fetched) -> String {
                         })
                         .collect();
                     format!(
-                        "<table><thead><tr><th>tool</th><th>caller</th>\
-                         <th>effect</th><th>result</th></tr></thead><tbody>{body}</tbody></table>"
+                        "<table><thead><tr><th>{t}</th><th>{c}</th>\
+                         <th>{e}</th><th>{r}</th></tr></thead><tbody>{body}</tbody></table>",
+                        t = lang.t(Key::Tool),
+                        c = lang.t(Key::Caller),
+                        e = lang.t(Key::Effect),
+                        r = lang.t(Key::Result),
                     )
                 }
             }
         }
     };
-    panel("what the model did", &body)
+    panel(lang.t(Key::ModelDid), &body)
 }
 
-pub fn rollback_panel(environments: Option<&[String]>) -> String {
+pub fn rollback_panel(lang: Lang, environments: Option<&[String]>) -> String {
     let body = match environments {
         None => unavailable(
             "rollback",
@@ -210,7 +224,7 @@ pub fn rollback_panel(environments: Option<&[String]>) -> String {
             items
         }
     };
-    panel("you can go back to", &body)
+    panel(lang.t(Key::GoBackTo), &body)
 }
 
 fn panel(title: &str, body: &str) -> String {
@@ -227,7 +241,7 @@ fn panel(title: &str, body: &str) -> String {
 /// after it: given what is running, is the arrangement even coherent? A service
 /// up without the database it reads from is not down, and is not working
 /// either, and nothing else on this page would say so.
-pub fn constraints_panel(views: &[ServiceView]) -> String {
+pub fn constraints_panel(lang: Lang, views: &[ServiceView]) -> String {
     use hajime_model::world::World;
 
     let running: Vec<&str> = views
@@ -246,7 +260,7 @@ pub fn constraints_panel(views: &[ServiceView]) -> String {
     );
 
     if violations.is_empty() {
-        body.push_str(r#"<p class="empty">every constraint is satisfied</p>"#);
+        body.push_str(&format!(r#"<p class="empty">{}</p>"#, lang.t(Key::AllSatisfied)));
     } else {
         let rows: String = violations
             .iter()
@@ -255,10 +269,52 @@ pub fn constraints_panel(views: &[ServiceView]) -> String {
         body.push_str(&format!(r#"<ul class="violations">{rows}</ul>"#));
     }
 
-    panel("the model's view", &body)
+    panel(lang.t(Key::ModelView), &body)
+}
+
+/// The mascot's head, as rectangles.
+///
+/// Generated by hajime-brand into an SVG of one rect per run of colour, and
+/// compiled in rather than fetched: this page has to render when the machine it
+/// is describing is having its worst day, and a second request for a logo is a
+/// second thing that can fail.
+const MARK: &str = include_str!("../../hajime-brand/out/mark.svg");
+
+fn footer(lang: Lang) -> String {
+    // The ask is dropped entirely when brand.toml has no sponsor URL, rather
+    // than rendered as a dead link or a placeholder.
+    let sponsor = if brand::SPONSOR_URL.is_empty() {
+        String::new()
+    } else {
+        let cta = match lang {
+            Lang::Ar => brand::SPONSOR_CTA_AR,
+            Lang::En => brand::SPONSOR_CTA_EN,
+        };
+        format!(
+            r#"<span class="sponsor"><a href="https://{url}" rel="noopener">{cta}</a></span>"#,
+            url = escape(brand::SPONSOR_URL),
+            cta = escape(cta),
+        )
+    };
+    format!(
+        r#"<footer>
+  <span>{refresh}</span>
+  <span><a href="https://{repo}" rel="noopener">{repo}</a> · {built} {author}</span>
+  {sponsor}
+  <a class="lang" href="?lang={other}" hreflang="{other}" lang="{other}">{other_name}</a>
+</footer>"#,
+        refresh = escape(lang.t(Key::Refreshes)),
+        repo = escape(brand::REPO),
+        built = escape(lang.t(Key::BuiltBy)),
+        author = escape(brand::AUTHOR),
+        sponsor = sponsor,
+        other = lang.other().code(),
+        other_name = escape(lang.other().name()),
+    )
 }
 
 pub fn page(
+    lang: Lang,
     headline: &str,
     views: &[ServiceView],
     history: &Fetched,
@@ -275,17 +331,18 @@ pub fn page(
 
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html lang="{lang}" dir="{dir}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hajime</title>
+<title>{name}</title>
 <link rel="stylesheet" href="/console.css">
+<link rel="icon" href="/mark.svg" type="image/svg+xml">
 <meta http-equiv="refresh" content="30">
 </head>
-<body>
+<body dir="{dir}">
 <div class="cabinet"><div class="screen">
-  <h1 class="title"><span class="mark"></span> Hajime</h1>
+  <h1 class="title"><span class="mark">{mark}</span> {name}</h1>
   <p class="headline {tone}">{headline}</p>
   <div class="panels">
     {services}
@@ -295,15 +352,20 @@ pub fn page(
     {rollback}
   </div>
 </div></div>
-<footer>refreshes every 30 seconds</footer>
+{footer}
 </body>
 </html>"#,
+        lang = lang.code(),
+        dir = lang.dir(),
+        name = escape(brand::NAME),
+        mark = MARK,
         headline = escape(headline),
-        services = services_panel(views),
-        constraints = constraints_panel(views),
-        history = history_panel(history),
-        audit = audit_panel(audit),
-        rollback = rollback_panel(environments),
+        services = services_panel(lang, views),
+        constraints = constraints_panel(lang, views),
+        history = history_panel(lang, history),
+        audit = audit_panel(lang, audit),
+        rollback = rollback_panel(lang, environments),
+        footer = footer(lang),
     )
 }
 
@@ -331,7 +393,7 @@ mod tests {
             view("hajime_workflow", true, Reach::Up),
             view("postgresql", true, Reach::Down),
         ];
-        let html = constraints_panel(&views);
+        let html = constraints_panel(Lang::En, &views);
         assert!(html.contains("postgresql"), "{html}");
         assert!(html.contains("hajime_workflow"), "{html}");
     }
@@ -349,7 +411,7 @@ mod tests {
                 detail: None,
             })
             .collect();
-        let html = constraints_panel(&every);
+        let html = constraints_panel(Lang::En, &every);
         // Everything up satisfies the dependency and essential-service rules.
         // Whether it also fits the budget is a separate question the panel
         // answers on its own line.
@@ -362,7 +424,7 @@ mod tests {
         // rendered through the same escape as everything else so that stays
         // true if a name ever reaches it.
         let views = vec![view("hajime_workflow", true, Reach::Up)];
-        let html = constraints_panel(&views);
+        let html = constraints_panel(Lang::En, &views);
         assert!(!html.contains("<script"), "{html}");
     }
 
@@ -376,7 +438,7 @@ mod tests {
                 "trigger": "manual", "duration_ms": 5, "success": true
             }]
         }));
-        let html = history_panel(&hostile);
+        let html = history_panel(Lang::En, &hostile);
         assert!(!html.contains("<script>"), "script tag survived: {html}");
         assert!(html.contains("&lt;script&gt;"));
     }
@@ -396,7 +458,7 @@ mod tests {
     fn an_unreachable_service_explains_itself_rather_than_rendering_empty() {
         // The failure this guards against: a blank panel that looks like
         // "nothing happened" when it means "nobody answered".
-        let html = history_panel(&Fetched::Unreachable);
+        let html = history_panel(Lang::En, &Fetched::Unreachable);
         assert!(html.contains("not answering"));
         assert!(html.contains("not the same as nothing having run"));
     }
@@ -410,7 +472,7 @@ mod tests {
             "duration_ms": 0, "success": false,
             "error": "missed: 6 occurrence(s) came due while the scheduler was down"
         }]});
-        let html = history_panel(&Fetched::ok(data));
+        let html = history_panel(Lang::En, &Fetched::ok(data));
         assert!(html.contains("missed: 6 occurrence"), "{html}");
     }
 
@@ -421,7 +483,7 @@ mod tests {
             "workflow": "W", "trigger": "schedule", "duration_ms": 0,
             "success": false, "error": long
         }]});
-        let html = history_panel(&Fetched::ok(data));
+        let html = history_panel(Lang::En, &Fetched::ok(data));
         assert!(html.contains('…'), "should be elided: {html}");
         assert!(!html.contains(&"x".repeat(120)), "should not carry the whole string");
     }
@@ -434,22 +496,22 @@ mod tests {
             "workflow": "W", "trigger": "schedule", "duration_ms": 0,
             "success": false, "error": "<script>alert('x')</script>"
         }]});
-        let html = history_panel(&Fetched::ok(data));
+        let html = history_panel(Lang::En, &Fetched::ok(data));
         assert!(!html.contains("<script>"), "{html}");
         assert!(html.contains("&lt;script&gt;"), "{html}");
     }
 
     #[test]
     fn an_error_and_an_outage_render_differently() {
-        let unreachable = history_panel(&Fetched::Unreachable);
-        let refused = history_panel(&Fetched::error("unauthorised"));
+        let unreachable = history_panel(Lang::En, &Fetched::Unreachable);
+        let refused = history_panel(Lang::En, &Fetched::error("unauthorised"));
         assert_ne!(unreachable, refused);
         assert!(refused.contains("unauthorised"));
     }
 
     #[test]
     fn an_empty_history_is_stated_not_left_blank() {
-        let html = history_panel(&Fetched::ok(serde_json::json!({"recent": []})));
+        let html = history_panel(Lang::En, &Fetched::ok(serde_json::json!({"recent": []})));
         assert!(html.contains("no runs recorded yet"));
     }
 
@@ -463,7 +525,7 @@ mod tests {
                  "allowed": true, "dry_run": false}
             ]
         }));
-        let html = audit_panel(&audit);
+        let html = audit_panel(Lang::En, &audit);
         assert!(html.contains("dry run"), "{html}");
         assert!(html.contains("done"), "{html}");
     }
@@ -474,18 +536,19 @@ mod tests {
             "calls": [{"tool": "post_to_x", "caller": "m", "effect": "external",
                        "allowed": false, "dry_run": false}]
         }));
-        assert!(audit_panel(&audit).contains("refused"));
+        assert!(audit_panel(Lang::En, &audit).contains("refused"));
     }
 
     #[test]
     fn the_headline_tone_follows_the_worst_state() {
-        let down = page("1 down: caddy", &[], &Fetched::Unreachable, &Fetched::Unreachable, None);
+        let down = page(Lang::En, "1 down: caddy", &[], &Fetched::Unreachable, &Fetched::Unreachable, None);
         assert!(down.contains("is-bad"));
 
-        let ok = page("everything up", &[], &Fetched::Unreachable, &Fetched::Unreachable, None);
+        let ok = page(Lang::En, "everything up", &[], &Fetched::Unreachable, &Fetched::Unreachable, None);
         assert!(ok.contains("is-good"));
 
         let saving = page(
+            Lang::En,
             "sites up, 2 optional service(s) stopped",
             &[], &Fetched::Unreachable, &Fetched::Unreachable, None,
         );
@@ -494,7 +557,7 @@ mod tests {
 
     #[test]
     fn services_render_with_their_tier_and_state() {
-        let html = services_panel(&[
+        let html = services_panel(Lang::En, &[
             view("caddy", true, Reach::Up),
             view("llamacpp", false, Reach::Down),
         ]);
@@ -507,7 +570,7 @@ mod tests {
 
     #[test]
     fn without_zfs_the_rollback_panel_says_so() {
-        let html = rollback_panel(None);
+        let html = rollback_panel(Lang::En, None);
         assert!(html.contains("not a ZFS root"));
         assert!(html.contains("no \n            one-step way back")
             || html.contains("one-step way back"));
@@ -516,6 +579,7 @@ mod tests {
     #[test]
     fn the_page_is_valid_enough_to_parse_and_carries_no_stray_markup() {
         let html = page(
+            Lang::En,
             "everything up",
             &[view("caddy", true, Reach::Up)],
             &Fetched::ok(serde_json::json!({"recent": []})),
@@ -523,8 +587,73 @@ mod tests {
             Some(&["hajime-before-upgrade-20260804-093015".to_string()]),
         );
         assert!(html.starts_with("<!doctype html>"));
-        assert_eq!(html.matches("<body>").count(), 1);
+        assert_eq!(html.matches("<body").count(), 1);
         assert_eq!(html.matches("</html>").count(), 1);
         assert!(html.contains("console.css"));
+    }
+
+    fn rendered(lang: Lang) -> String {
+        page(
+            lang,
+            "everything up",
+            &[view("caddy", true, Reach::Up)],
+            &Fetched::ok(serde_json::json!({"recent": []})),
+            &Fetched::ok(serde_json::json!({"calls": []})),
+            None,
+        )
+    }
+
+    #[test]
+    fn the_arabic_page_is_marked_arabic_and_right_to_left() {
+        // Both attributes, and on both elements. `dir` on <html> alone leaves
+        // the body's own text alignment to the stylesheet, which is how a page
+        // ends up with right-to-left text flush left.
+        let html = rendered(Lang::Ar);
+        assert!(html.contains(r#"<html lang="ar" dir="rtl">"#), "{html}");
+        assert!(html.contains(r#"<body dir="rtl">"#), "{html}");
+    }
+
+    #[test]
+    fn the_panels_are_titled_in_the_language_asked_for() {
+        assert!(rendered(Lang::Ar).contains("الخدمات"));
+        assert!(rendered(Lang::En).contains("services"));
+    }
+
+    #[test]
+    fn the_switch_offers_the_other_language_and_not_this_one() {
+        assert!(rendered(Lang::En).contains(r#"href="?lang=ar""#));
+        assert!(rendered(Lang::Ar).contains(r#"href="?lang=en""#));
+    }
+
+    #[test]
+    fn the_footer_carries_the_repository_and_the_author() {
+        // These come from brand.toml through a generated file. If the include
+        // ever goes stale this is what notices.
+        let html = rendered(Lang::En);
+        assert!(html.contains(brand::REPO), "{html}");
+        assert!(html.contains(brand::AUTHOR), "{html}");
+    }
+
+    #[test]
+    fn an_empty_sponsor_url_removes_the_ask_rather_than_linking_nowhere() {
+        // The constant is compiled in, so this asserts the rule the code
+        // follows rather than flipping the value: with a URL, one link; the
+        // branch that drops it is right above and has no other way to be wrong.
+        let html = rendered(Lang::En);
+        if brand::SPONSOR_URL.is_empty() {
+            assert!(!html.contains("sponsor"), "{html}");
+        } else {
+            assert!(html.contains(brand::SPONSOR_URL), "{html}");
+            assert_eq!(html.matches("class=\"sponsor\"").count(), 1);
+        }
+    }
+
+    #[test]
+    fn the_mark_is_inline_rather_than_a_second_request() {
+        // A page that describes a broken machine should not need the machine to
+        // serve it a logo first.
+        let html = rendered(Lang::En);
+        assert!(html.contains("<svg"), "the mark is missing");
+        assert!(!html.contains("<img"), "nothing here should be fetched: {html}");
     }
 }

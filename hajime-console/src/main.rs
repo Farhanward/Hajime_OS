@@ -7,8 +7,14 @@
 //!   HAJIME_WORKFLOW_URL      default http://127.0.0.1:5678
 //!   HAJIME_AI_URL            default http://127.0.0.1:11434
 
-use axum::{extract::State, response::Html, routing::get, Router};
-use hajime_console::{collect::Collector, render};
+use axum::{
+    extract::{RawQuery, State},
+    http::HeaderMap,
+    response::Html,
+    routing::get,
+    Router,
+};
+use hajime_console::{collect::Collector, i18n::Lang, render};
 use hajime_core::{config::Common, secrets, Auth};
 use hajime_sys::snapshot;
 use std::sync::Arc;
@@ -22,7 +28,21 @@ struct AppState {
     ai_token: Option<Arc<String>>,
 }
 
-async fn index(State(s): State<AppState>) -> Html<String> {
+async fn index(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Html<String> {
+    // The language is a property of whoever is reading, not of the page: a
+    // chosen `?lang=` first, the browser's list second, English if neither says
+    // anything. Same rule as the login class, one layer up.
+    let lang = Lang::from_request(
+        query.as_deref(),
+        headers
+            .get(axum::http::header::ACCEPT_LANGUAGE)
+            .and_then(|v| v.to_str().ok()),
+    );
+
     let views = s.collector.services().await;
     let headline = hajime_console::collect::headline(&views);
 
@@ -40,6 +60,7 @@ async fn index(State(s): State<AppState>) -> Html<String> {
     let environments = snapshot::list_boot_environments().ok();
 
     Html(render::page(
+        lang,
         &headline,
         &views,
         &history,
@@ -48,11 +69,32 @@ async fn index(State(s): State<AppState>) -> Html<String> {
     ))
 }
 
+/// The stylesheet, palette first.
+///
+/// Two files, one response. The palette is generated from palette.toml by
+/// hajime-brand, so the console cannot drift from the desktop and the kernel
+/// console about what any colour is; console.css is the part that is only this
+/// page's business. Concatenating them here rather than using an `@import`
+/// saves the browser a second request on a page whose whole point is to load
+/// when the machine is unwell.
 async fn stylesheet() -> axum::response::Response {
     use axum::http::header;
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        include_str!("../static/console.css"),
+        concat!(
+            include_str!("../../hajime-brand/out/palette.css"),
+            include_str!("../static/console.css"),
+        ),
+    )
+        .into_response()
+}
+
+/// The mascot's head, for the tab's icon.
+async fn mark() -> axum::response::Response {
+    use axum::http::header;
+    (
+        [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
+        include_str!("../../hajime-brand/out/mark.svg"),
     )
         .into_response()
 }
@@ -99,6 +141,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index))
         .route("/console.css", get(stylesheet))
+        .route("/mark.svg", get(mark))
         .layer(axum::middleware::from_fn_with_state(
             auth.clone(),
             hajime_core::auth::require_token,
