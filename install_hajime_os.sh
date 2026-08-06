@@ -360,7 +360,12 @@ fi
 # --- 7. rc.d scripts and tokens --------------------------------------------
 step "services"
 
-for svc in hajime-workflow hajime-ai hajime-wa; do
+# Every service that has an rc script. The console and the WhatsApp bridge were
+# missing from this list, so both were installed as binaries that nothing ever
+# started: the console answered nothing on 8088 while the message of the day
+# pointed at it, and the bridge left the gateway reporting "bridge down" for
+# ever. hajime-wa/rc.d holds two scripts, which is why the inner loop exists.
+for svc in hajime-workflow hajime-ai hajime-wa hajime-console; do
     name=$(echo "$svc" | tr '-' '_')
     src="$HERE/$svc/rc.d/$name"
     [ -f "$src" ] || { warn "$src not found"; continue; }
@@ -477,10 +482,58 @@ run sysrc hajime_workflow_allow_command="NO" >/dev/null
 run sysrc hajime_workflow_allow_ssh="NO" >/dev/null
 ok "executeCommand and ssh nodes disabled"
 
-for s in hajime_ai_enable hajime_wa_enable; do
+# The console is the exception among the optional services: it costs 15 MB and
+# it is how you find out what the others are doing, so leaving it off would mean
+# the first thing a new machine asks you to do is start the thing that tells you
+# what to start.
+run sysrc hajime_console_enable="YES" >/dev/null
+ok "console enabled: http://127.0.0.1:8088/"
+
+for s in hajime_ai_enable hajime_wa_enable hajime_wa_bridge_enable; do
     run sysrc "${s}=NO" >/dev/null
 done
 ok "optional services left off; start one with 'hajimectl start hajime_ai'"
+
+# --- 7a. the sites ---------------------------------------------------------
+# Caddy and cloudflared were installed and never configured, which is a machine
+# that passes every step of this installer and serves nothing. Neither is
+# written blind: the site table decides the proxy, and the tunnel needs a
+# credential this script will not invent.
+step "sites"
+
+if [ -x /usr/local/sbin/php-fpm ] || [ -x /usr/local/bin/php-fpm ]; then
+    run sysrc php_fpm_enable="YES" >/dev/null && ok "php-fpm enabled"
+    if [ "$DRY" -eq 0 ] && [ ! -f /usr/local/etc/php.ini ] &&        [ -f /usr/local/etc/php.ini-production ]; then
+        run install -m 644 /usr/local/etc/php.ini-production /usr/local/etc/php.ini             && ok "php.ini from the production template"
+    fi
+else
+    warn "php-fpm not found; a php site would be refused by the generator"
+fi
+
+if [ -f "${HERE}/hajime-web/generate_caddyfile.sh" ]; then
+    GEN_ARGS=""
+    [ "$DRY" -eq 1 ] && GEN_ARGS="--dry-run"
+    # shellcheck disable=SC2086
+    sh "${HERE}/hajime-web/generate_caddyfile.sh" $GEN_ARGS
+    case $? in
+        0) ok "Caddyfile generated from hajime-web/sites.conf"
+           run sysrc caddy_enable="YES" >/dev/null ;;
+        2) warn "no sites declared in hajime-web/sites.conf.
+            Caddy is installed and will serve nothing until you fill it in.
+            This is the step that brings the websites back." ;;
+        *) warn "the Caddyfile was not generated; its output above says why" ;;
+    esac
+fi
+
+if [ -f /usr/local/etc/cloudflared/config.yml ]; then
+    run sysrc cloudflared_enable="YES" >/dev/null && ok "cloudflared enabled"
+else
+    warn "no /usr/local/etc/cloudflared/config.yml.
+            The tunnel is the only path in from outside, and its credential is
+            an account secret this installer will not invent. The template and
+            the three commands that produce one:
+            hajime-web/cloudflared.yml.example"
+fi
 
 # --- 7b. the theme ---------------------------------------------------------
 # Run here rather than left to the desktop installer, because most of what it
