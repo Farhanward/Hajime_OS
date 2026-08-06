@@ -38,12 +38,34 @@ jobs:
       - name: no warnings
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: the theme matches the code that generates it
+        # The palettes, the loader's Lua, the console art and the Rust constants
+        # the console compiles in are all generated. A committed generated file
+        # drifts the moment someone edits it by hand or edits the generator and
+        # forgets to re-run it, and both are silent. This regenerates into a
+        # temporary directory and diffs.
+        #
+        # It does not diff the pictures. Their lettering is rasterised by
+        # whatever FreeType the machine has, and two versions put a pixel in a
+        # different place -- so byte-comparing them here would fail every run for
+        # a reason nobody can fix. They are checked for presence and size, which
+        # is the part that can actually go wrong in a commit.
+        run: |
+          python3 -m pip install --quiet --break-system-packages pillow
+          python3 hajime-brand/tools/emit.py --check
+
+      - name: every file the theme refers to exists
+        # The installer reads about thirty paths and writes them somewhere else.
+        # A missing one does not fail when it goes missing; it fails halfway
+        # through an install on a machine with no console.
+        run: sh hajime-brand/check_wiring.sh
+
       - name: line endings
         # FreeBSD's sh rejects a CRLF script with a syntax error naming the
         # wrong line, and Git Bash tolerates it, so this only ever fails on the
         # target. It has bitten twice.
         run: |
-          bad=$(find . -name '*.sh' -o -path '*/rc.d/*' -type f | xargs file | grep -i crlf || true)
+          bad=$(find . -name '*.sh' -o -path '*/rc.d/*' -type f -o -name '*.ansi' | xargs file | grep -i crlf || true)
           if [ -n "$bad" ]; then echo "CRLF found:"; echo "$bad"; exit 1; fi
           echo "all scripts are LF"
 

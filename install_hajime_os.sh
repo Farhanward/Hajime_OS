@@ -482,6 +482,27 @@ for s in hajime_ai_enable hajime_wa_enable; do
 done
 ok "optional services left off; start one with 'hajimectl start hajime_ai'"
 
+# --- 7b. the theme ---------------------------------------------------------
+# Run here rather than left to the desktop installer, because most of what it
+# sets is not a desktop thing: the loader's screen, the sixteen colours the
+# kernel console prints in, the message of the day, and the language classes.
+# A headless server gets all of that; --no-desktop skips the rest.
+step "theme"
+if [ -x "${HERE}/hajime-brand/install_theme.sh" ] || [ -f "${HERE}/hajime-brand/install_theme.sh" ]; then
+    THEME_ARGS="--no-desktop"
+    [ "$DRY" -eq 1 ] && THEME_ARGS="${THEME_ARGS} --dry-run"
+    # shellcheck disable=SC2086
+    if sh "${HERE}/hajime-brand/install_theme.sh" $THEME_ARGS; then
+        ok "loader screen, console palette, motd and language classes"
+    else
+        warn "the theme installer refused; the system is installed and unstyled.
+            Its own output above says why. Re-run it alone:
+            sh hajime-brand/install_theme.sh"
+    fi
+else
+    warn "hajime-brand/install_theme.sh not found; skipping the theme"
+fi
+
 # --- 8. verdict ------------------------------------------------------------
 step "done"
 
@@ -515,6 +536,7 @@ say "              three jails on their own datasets, so one service can be"
 say "              rolled back without touching the other two"
 say ""
 say "     desktop  sh hajime-wm/install_desktop.sh"
+say "              wayfire, the pixel theme, the wallpaper and the launchers"
 say ""
 say "   The system model is installed and can be asked things directly:"
 say "     hajime-model ask \"what is running\""
