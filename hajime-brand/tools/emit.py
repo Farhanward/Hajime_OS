@@ -428,7 +428,7 @@ def write_all(out: Path) -> list[Path]:
     save(loader_logo_png(), "hajime-logo.png")
 
     head = mascot.head()
-    for size in (16, 24, 32, 48, 64, 128, 256):
+    for size in MARK_SIZES:
         # Whole-number scaling only, then centred on a square. A 27-pixel head
         # resampled to 16 is mush; the head cropped and scaled by an integer
         # stays a face.
@@ -441,7 +441,7 @@ def write_all(out: Path) -> list[Path]:
         save(tile, f"mark-{size}.png")
 
     for name, _ar, _en in desktop_scene.LAUNCHERS:
-        for size in (24, 48):
+        for size in ICON_SIZES:
             glyph = px.icon(name, size - 4, "warm.ink")
             tile = px.new(size, size, "warm.screen_lit")
             px.rect(tile, (0, 0, size - 1, size - 1), outline="warm.outline")
@@ -494,6 +494,34 @@ def write_text(out: Path) -> list[str]:
     return list(produced)
 
 
+MARK_SIZES = (16, 24, 32, 48, 64, 128, 256)
+ICON_SIZES = (24, 48)
+
+
+def expected_files() -> set[str]:
+    """Every name write_all writes, without writing any of them.
+
+    Needed to answer the question the file-by-file comparison cannot: what is in
+    out/ that the generator no longer produces? Dropping three launchers left
+    six icons behind, committed and dead, and nothing noticed because every file
+    that was supposed to be there still was.
+    """
+    names = {
+        "boot-1920x1080.png", "splash-1920x1080.png", "wallpaper-1920x1080.png",
+        "preview-desktop-1920x1080.png", "hajime-logo.png", "palette.css",
+        "palette-gtk.css", "loader.conf.vt", "wayfire.colors", "gfx-hajime.lua",
+        "console-logo.ansi", "console-credits.ansi", "motd.hajime", "mark.svg",
+        "brand.rs",
+    }
+    names |= {f"mark-{size}.png" for size in MARK_SIZES}
+    names |= {
+        f"icons/{name}-{size}.png"
+        for name, _ar, _en in desktop_scene.LAUNCHERS
+        for size in ICON_SIZES
+    }
+    return names
+
+
 def check() -> int:
     """Is out/ still what the code produces?
 
@@ -529,6 +557,15 @@ def check() -> int:
         with Image.open(path) as im:
             if im.size != size:
                 stale.append(f"wrong size: out/{name} is {im.size}, expected {size}")
+
+    # And the other direction: anything here the generator would not write.
+    expected = expected_files()
+    for path in sorted(OUT.rglob("*")):
+        if path.is_dir():
+            continue
+        rel = path.relative_to(OUT).as_posix()
+        if rel not in expected:
+            stale.append(f"left over: out/{rel}")
 
     if stale:
         print("out/ does not match what the generator produces:")
