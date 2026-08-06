@@ -14,3 +14,8 @@
 
 # ملفات وسيطة
 *.metadata.json
+__pycache__/
+*.py[co]
+
+# مخرجات المعاينة المحلية للكونسول
+console-preview.html

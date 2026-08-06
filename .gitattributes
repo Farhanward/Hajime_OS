@@ -10,3 +10,14 @@
 *.ini text eol=lf
 *.rs text eol=lf
 *.go text eol=lf
+
+# The generated art. Marked binary so a diff shows "changed" rather than a
+# thousand lines of mangled bytes, and so the eol=lf rule above never touches
+# them: a PNG with its 0x0d bytes rewritten is a PNG that no longer decodes.
+*.png binary
+*.ttf binary
+*.ico binary
+# The console art and the loader's Lua carry real escape bytes and tabs. They
+# are text, and they must reach FreeBSD with LF endings like every other script.
+*.ansi text eol=lf
+*.lua text eol=lf

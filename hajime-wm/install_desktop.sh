@@ -81,7 +81,13 @@ step "packages"
 # drm-kmod is the meta-port: it selects the driver version matching this
 # kernel. Pinning a specific one by hand is what produces the version
 # mismatches people hit on point releases.
-PKGS="drm-kmod ${FIRMWARE} seatd wayfire wf-shell"
+# wayfire and wf-shell are the desktop. The four after them are what the
+# launchers in wf-shell.ini actually start: without them the panel has buttons
+# that do nothing, which is worse than a panel with fewer buttons.
+#
+# imv is for the splash and is the one thing here that is optional in practice:
+# wayfire.ini guards on it, so a session still starts if it is missing.
+PKGS="drm-kmod ${FIRMWARE} seatd wayfire wf-shell xterm thunar imv xdg-utils"
 
 for p in $PKGS; do
     if pkg info -e "$p" 2>/dev/null; then
@@ -123,20 +129,34 @@ step "theme"
 HOME_DIR=$(getent passwd "${USER_NAME}" 2>/dev/null | cut -d: -f6)
 HOME_DIR="${HOME_DIR:-/home/${USER_NAME}}"
 
+# The stylesheet and the palette it imports. Installing one without the other
+# leaves GTK resolving @screen to nothing and drawing every window transparent.
+PALETTE="${HERE}/../hajime-brand/out/palette-gtk.css"
+[ -f "$PALETTE" ] || die "missing ${PALETTE}
+            The palette is generated: python hajime-brand/tools/emit.py"
+
 for target in "${HOME_DIR}/.config/gtk-3.0" "${HOME_DIR}/.config/gtk-4.0"; do
     run install -d -o "${USER_NAME}" -m 755 "$target"
-    if run install -o "${USER_NAME}" -m 644 "${HERE}/hajime_theme.css" "${target}/gtk.css"; then
-        ok "theme installed to ${target}/gtk.css"
+    if run install -o "${USER_NAME}" -m 644 "${HERE}/hajime_theme.css" "${target}/gtk.css" &&
+       run install -o "${USER_NAME}" -m 644 "$PALETTE" "${target}/palette-gtk.css"; then
+        ok "theme and palette installed to ${target}"
     else
         warn "could not install the theme to ${target}"
     fi
 done
 
-run install -d -o "${USER_NAME}" -m 755 "${HOME_DIR}/.config/wayfire"
 if run install -o "${USER_NAME}" -m 644 "${HERE}/wayfire.ini" "${HOME_DIR}/.config/wayfire.ini"; then
     ok "wayfire.ini installed"
 else
     warn "could not install wayfire.ini"
+fi
+
+# wf-panel and wf-background read their own file. The wallpaper path lives
+# there, and putting it in wayfire.ini instead fails without saying anything.
+if run install -o "${USER_NAME}" -m 644 "${HERE}/wf-shell.ini" "${HOME_DIR}/.config/wf-shell.ini"; then
+    ok "wf-shell.ini installed (panel at the bottom, wallpaper, launchers)"
+else
+    warn "could not install wf-shell.ini"
 fi
 
 # --- 6. verdict ------------------------------------------------------------
@@ -159,4 +179,14 @@ say "   working and the problem is elsewhere. A 'not found' line names the"
 say "   file, and its prefix names the package."
 say ""
 say "   The diagnostic script covers the rest:  sh wayland_feasibility_test.sh"
+say ""
+say "   The wallpaper, the splash and the launcher icons come from the theme"
+say "   installer, which also sets the loader screen and the console palette:"
+say ""
+say "     sh hajime-brand/install_theme.sh"
+say ""
+say "   And the display language, which is a login class like on any other"
+say "   system rather than a translation painted into the pictures:"
+say ""
+say "     hajime-lang ar        (or: hajime-lang en)"
 exit 0
