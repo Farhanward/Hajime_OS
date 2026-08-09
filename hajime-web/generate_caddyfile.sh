@@ -163,7 +163,13 @@ if [ "$DRY" -eq 1 ]; then
     exit 0
 fi
 
-install -d -m 755 "$(dirname "$OUT")" || die "cannot create $(dirname "$OUT")"
+# Only when it is missing. `install -d -m 755` on a directory that already
+# exists silently re-permissions it, and CI writes its test Caddyfile to /tmp:
+# that one call took /tmp from 1777 down to 755, after which postgres could not
+# create its socket lock file and the whole job failed three steps later with a
+# message that named neither /tmp nor this script.
+OUTDIR=$(dirname "$OUT")
+[ -d "$OUTDIR" ] || install -d -m 755 "$OUTDIR" || die "cannot create ${OUTDIR}"
 install -d -o www -g www -m 755 /var/log/caddy 2>/dev/null || true
 
 TMP="${OUT}.hajime.$$"
