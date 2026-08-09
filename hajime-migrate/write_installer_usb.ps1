@@ -101,20 +101,39 @@ if (-not $Yes) {
 }
 
 # --- write ------------------------------------------------------------------
-# Offline first. Windows holds open handles on mounted volumes and the write
-# fails partway through with a sharing violation, leaving a half-written stick
-# that still looks bootable.
-Say "taking the disk offline"
-Set-Disk -Number $Disk -IsOffline $true
-Start-Sleep -Seconds 1
+# The mounted volume has to go before the raw device can be written, or Windows
+# refuses with "Access to the path is denied" while holding the handle.
+#
+# Set-Disk -IsOffline is the obvious way and it does not work here: removable
+# media cannot be taken offline, and the cmdlet says exactly that before the
+# write fails for the reason it was meant to prevent. `diskpart clean` is what
+# does work -- it wipes the partition table, which leaves no volume for Windows
+# to hold open.
+Say "removing the partition table so nothing holds the volume"
+$dp = @"
+select disk $Disk
+clean
+"@
+$dpOut = $dp | diskpart
+if ($LASTEXITCODE -ne 0) {
+    Die "diskpart could not clean disk ${Disk}:`n$($dpOut -join "`n")"
+}
+# Windows re-enumerates the disk after a clean, and opening the device while
+# that is in flight fails the same way a mounted volume would.
+Start-Sleep -Seconds 3
 
 $in = $null; $out = $null
 try {
     $in  = [System.IO.File]::OpenRead($Image)
+    # FileShare::ReadWrite, not None. The volume manager keeps its own handle on
+    # a physical drive at all times, so demanding exclusive access is denied
+    # before the first byte -- which reads as a permissions problem and is not
+    # one. This is the third thing that had to be right here, after elevation
+    # and after clearing the partition table.
     $out = New-Object System.IO.FileStream("\\.\PhysicalDrive$Disk",
               [System.IO.FileMode]::Open,
               [System.IO.FileAccess]::Write,
-              [System.IO.FileShare]::None)
+              [System.IO.FileShare]::ReadWrite)
 
     $buffer = New-Object byte[] (4MB)
     $written = 0L
@@ -134,7 +153,10 @@ try {
 } finally {
     if ($out) { $out.Close() }
     if ($in)  { $in.Close() }
-    Set-Disk -Number $Disk -IsOffline $false -ErrorAction SilentlyContinue
+    # Nothing to bring back online: the disk was never taken offline, because
+    # removable media cannot be. Ask Windows to look at it again instead, so
+    # the new layout appears without unplugging the stick.
+    Update-HostStorageCache -ErrorAction SilentlyContinue
 }
 
 Write-Host @"
