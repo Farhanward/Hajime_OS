@@ -282,9 +282,15 @@ def loader_conf_vt() -> str:
         out.append(f'kern.vt.color.{num}.rgb="{hexv}"   # {name}')
     out += [
         "",
-        "# A 16x32 VGA face: at 1080p the 8x16 default is a line of ants, and this",
-        "# is the same grid the pixel art is drawn on.",
-        'screen.font="vgarom-16x32"',
+        "# A 16x32 face: at 1080p the default is a line of ants, and this is the",
+        "# same grid the pixel art is drawn on.",
+        "#",
+        "# The name is the file in /boot/fonts without its .fnt.gz, and the loader",
+        "# ignores a name it does not have there without saying so. This asked for",
+        "# vgarom-16x32 for a while; FreeBSD 14.4 ships 16x32 and no vgarom-16x32,",
+        "# so every boot silently kept the 6x12 default while loader.conf looked",
+        "# correct to anyone reading it.",
+        'screen.font="16x32"',
         "",
         "# The loader's own screen.",
         'loader_logo="hajime"',
