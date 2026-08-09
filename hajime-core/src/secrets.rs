@@ -28,7 +28,8 @@ pub enum SecretError {
         #[source]
         source: std::io::Error,
     },
-    #[error("{path} is mode {mode:o}: readable beyond its owner. Run: chmod 600 {path}")]
+    #[error("{path} is mode {mode:o}: reachable beyond root and its group. \
+Run: chmod 640 {path}  (600 also passes)")]
     TooOpen { path: PathBuf, mode: u32 },
     #[error("{0} is empty")]
     Empty(PathBuf),
@@ -178,8 +179,21 @@ fn check_permissions(path: &Path) -> Result<(), SecretError> {
         source,
     })?;
     let mode = meta.permissions().mode() & 0o777;
-    // Any permission for group or other is too much.
-    if mode & 0o077 != 0 {
+    // Any bit for other is too much, and so is write or execute for group.
+    // Group *read* is allowed, and that is a correction rather than a
+    // loosening.
+    //
+    // This used to refuse `mode & 0o077`, which rejects 640. The installer
+    // writes every file in /usr/local/etc/hajime as root:hajime 640, inside a
+    // directory that is itself 750, on purpose: the daemons run as hajime and
+    // read a token they have no permission to rewrite. Demanding 600 forces
+    // the opposite arrangement, where each daemon owns its own secret and can
+    // overwrite it, which is weaker.
+    //
+    // Nobody noticed because the console had never been started. On the first
+    // real machine it refused to come up, logged the file it objected to, and
+    // that was the whole of the evidence.
+    if mode & 0o007 != 0 || mode & 0o030 != 0 {
         return Err(SecretError::TooOpen { path: path.to_path_buf(), mode });
     }
     Ok(())
@@ -296,6 +310,55 @@ mod tests {
         match Store::from_dir(&dir) {
             Err(SecretError::TooOpen { mode, .. }) => assert_eq!(mode, 0o644),
             other => panic!("a 0644 secret must be refused, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_root_owned_group_readable_layout_the_installer_writes_is_accepted() {
+        // install_hajime_os.sh writes every file in /usr/local/etc/hajime as
+        // root:hajime 640 inside a 750 directory, so a daemon running as
+        // hajime can read a token it cannot rewrite. The check used to refuse
+        // that, and the console would not start on the first real machine.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("group-read");
+        let p = write(&dir, "token", "value");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        let store = Store::from_dir(&dir).expect("0640 is the installed layout");
+        assert_eq!(store.names(), vec!["token"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_group_writable_secret_is_still_refused() {
+        // Group read has a reason. Group write does not: it would let anyone
+        // in the group replace the token the daemon authenticates with.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("group-write");
+        let p = write(&dir, "token", "value");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o660)).unwrap();
+
+        match Store::from_dir(&dir) {
+            Err(SecretError::TooOpen { mode, .. }) => assert_eq!(mode, 0o660),
+            other => panic!("a 0660 secret must be refused, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_secret_the_world_can_read_is_refused_even_without_group_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("world-read");
+        let p = write(&dir, "token", "value");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o604)).unwrap();
+
+        match Store::from_dir(&dir) {
+            Err(SecretError::TooOpen { mode, .. }) => assert_eq!(mode, 0o604),
+            other => panic!("a 0604 secret must be refused, got {other:?}"),
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
