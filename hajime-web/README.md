@@ -71,3 +71,90 @@ cp cloudflared.yml.example /usr/local/etc/cloudflared/config.yml
 النفق يمرّر كل شيء إلى `127.0.0.1:80`، وCaddy يقرّر لأي موقع ينتمي الطلب من
 ترويسة `Host`. قاعدة واحدة بدل قاعدة لكل موقع، لأن قائمة المواقع تعيش في
 `sites.conf` وتكرارها في إعداد النفق هو كيف يفترق الاثنان.
+
+## من أين جاء جدول `sites.conf`
+
+قُرئ الخادم القديم (`192.168.100.59`) عبر SSH بتاريخ 2026-08-09، بأوامر قراءة
+فقط. تفصيل المصدر لكل صف موجود في التعليق الذي يسبقه داخل `sites.conf` نفسه؛
+هذا القسم يذكر العكس -- ما وُجد ولم يُدرَج، ولماذا -- حتى لا يُظن أن الجدول
+شامل.
+
+### مستبعدة لأن لا معنى لنقلها
+
+- `npm.carbonflows.store` و`admin.carbonflows.store` (اسمان لنفس الهدف، المنفذ
+  81) يوصلان إلى واجهة إدارة nginx-proxy-manager نفسها. هذا النظام لا يشغّل
+  nginx-proxy-manager؛ Caddy يحل محله كاملاً، فلا وجهة تُنقَل إليها.
+
+### أسماء ظهرت في ملف واحد غير مؤكَّد أنه حي
+
+الحاوية `carbonflow-cloudflared` تعمل بوضع `tunnel run --token ...` بلا أي
+mount محلي (`docker inspect` أظهر Mounts فارغة) -- أي أن قواعد التوجيه الفعلية
+محفوظة في لوحة Cloudflare السحابية، لا في ملف يمكن قراءته من الخادم. مع ذلك
+يوجد ملف `/opt/carbonflow/cloudflared/config.yml` بنفس معرّف النفق، يبدو نسخة
+موثّقة يدوياً من نفس القواعد (وربما قديمة). استُخدم في `sites.conf` كدليل
+مساند فقط لصفين (`n8n`, `status`) تؤكدهما أيضاً متغيرات بيئة حاويات حية
+(`N8N_HOST`, `WEBHOOK_URL`, `UPTIME_KUMA_BASE_URL`) -- لا كمصدر وحيد لأي صف.
+
+الأسماء التالية ظهرت في هذا الملف فقط، بلا أي تأكيد آخر، وتبدو أسماء بديلة
+لنفس الأهداف المُدرَجة بأسماء أخرى -- ربما تسميات قديمة سبقت إعادة تسمية:
+
+- `app.carbonflows.store` → نفس هدف `control-panel.carbonflows.store` (٨٠٨٨)
+- `api.carbonflows.store` → نفس هدف `releases.carbonflows.store` (٣٠١٠)
+- `carbonflows.store` (بلا فرع) → `litecart:80`، أي نفس هدف
+  `shop.carbonflows.store`. لم يظهر بصيغته العارية في nginx-proxy-manager قط.
+
+### نوع مؤكَّد، هدف غير مؤكَّد
+
+- `www.carbonflows.store` -- الحاوية `carbonflow-portfolio` (nginx:alpine)
+  تخدم موقعاً ثابتاً بالكامل من `/opt/carbonflow/portfolio/site`
+  (`docker-compose.yml` في `/opt/carbonflow/portfolio/`, bind mount للقراءة
+  فقط)، ورأس CSP داخل `nginx/default.conf` يشير صراحة إلى
+  `https://www.carbonflows.store` كمصدر ذاتي. هذا يكفي لتحديد **النوع**
+  بثقة: `static`. لكن **الهدف** -- المسار على قرص هذا الجهاز -- غير معروف:
+  لا يوجد بعد في هذا المستودع أي اصطلاح يحدد أين يُنسخ محتوى موقع ثابت
+  مهاجَر، والمسار القديم لا معنى له على FreeBSD. كتابة `/vault/www/portfolio`
+  كانت ستكون تخميناً؛ ذلك المسار مثال افتراضي في النسخة القديمة من هذا الملف
+  وليس بيانات حقيقية.
+
+### نطاق يُذكر في مراجع فقط، لا في أي قاعدة توجيه
+
+- `wa.carbonflows.store` -- يظهر في متغيرات بيئة حاويتين حيّتين
+  (`OPENWA_BASE_URL` في `carbonflow-n8n` و`carbonflow-telegram-openai-bot`)
+  ومن الواضح أنه يشير إلى WAHA (الحاوية `carbonflow-waha`، المنفذ 3000 داخلي
+  حسب `docker-compose.yml`). لكن لا nginx-proxy-manager ولا ملف cloudflared
+  المحلي ولا Caddyfile الخاص بـqood يحوي أي قاعدة توجيه بهذا الاسم. الحاويات
+  الأخرى تعرف عنوانه؛ لا مصدر هنا يثبت من يخدمه فعلياً.
+
+### حاوية بلا نطاق موثّق على الإطلاق
+
+- `fatmalens-album` (المُدرَج في `sites.conf` باسم `byfatmalens.space`) خلف
+  نفق Cloudflare منفصل تماماً (`fatmalens-tunnel`، توكن ومعرّف نفق مختلفان عن
+  نفق carbonflows)، وهو أيضاً بوضع `--token` بلا ملف محلي مواز. النطاق
+  الوحيد الموثّق له هو `byfatmalens.space` نفسه من تعليق رأس
+  `docker-compose.fatmalens.yml`. ملف `/opt/fatmalens/DEPLOYMENT.md` يذكر
+  احتمال أن DNS لهذا النطاق ما زال يشير إلى Bluehost لا إلى هذا الخادم --
+  إن صح ذلك فالصف في `sites.conf` صحيح البيانات لكن بلا أثر حتى يُحوَّل DNS.
+  يستحق التحقق قبل الاعتماد عليه.
+
+### حاويات متوقفة وقت القراءة، للسياق لا لتغيير القرار
+
+`carbonflow-release-api` و`carbonflow-telemetry-api` كانتا متوقفتين (Exited،
+منذ 5 أيام) وقت الفحص، ومعهما حزمة Postiz كاملة (`postiz`, `postiz-postgres`,
+`postiz-redis`, `postiz-temporal`, `postiz-temporal-es`). الأولتان أُدرِجتا في
+`sites.conf` رغم ذلك، لأن قاعدة التوجيه إليهما حقيقية ومؤكَّدة من
+nginx-proxy-manager نفسه بصرف النظر عن كون الحاوية متوقفة وقت القراءة.
+
+أما `post.carbonflows.store` (نطاق Postiz، من ملف cloudflared المحلي ومن
+متغيرات بيئة Postiz نفسها: `MAIN_URL`, `FRONTEND_URL`,
+`NEXT_PUBLIC_BACKEND_URL`) فلم يُدرَج: `hajime-migrate/INVENTORY_2026-08-03.md`
+يسجّل أن مصير حزمة Postiz قرار منتج معلّق بيد فرحان لا نتيجة فحص تقني، وكتابة
+نطاقه في جدول مواقع حي الآن تفترض قراراً لم يُتخذ بعد.
+
+### صف أُدرِج، لكنه لن يعمل كما هو
+
+`shop.carbonflows.store` في `sites.conf` هدفه `127.0.0.1:80` -- وهو المنفذ
+الداخلي الذي كانت تسمعه حاوية `carbonflow-litecart` على شبكة Docker معزولة.
+على هذا الجهاز Caddy نفسه يملك المنفذ 80 (هو ما يستقبل كل شيء من النفق). صف
+يوجّه إلى `127.0.0.1:80` يجعل Caddy يطلب نفسه. تُرِك الصف لأن النطاق والهدف
+القديم حقيقيان ويستحقان التسجيل، لكنه لن يعمل حتى يُمنَح بديل litecart منفذاً
+غير 80.
