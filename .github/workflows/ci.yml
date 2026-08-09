@@ -133,10 +133,68 @@ jobs:
                            mariadb1011-server mariadb1011-client redis caddy
 
             echo
+            echo "===== 7b. PHP, for the shop ====="
+            # The store is PHP and nothing installed an interpreter until now.
+            # Every extension name carries the version, so a ports rename breaks
+            # all of them at once, which is the kind of thing this job exists to
+            # find here rather than on the server.
+            pkg install -y php84 php84-extensions php84-mysqli php84-pdo_mysql \
+                           php84-gd php84-zip php84-mbstring php84-curl \
+                           php84-session php84-fileinfo php84-dom \
+                           php84-simplexml php84-iconv php84-opcache
+            php -v | head -1
+            echo "modules: $(php -m | tr '\n' ' ' | head -c 300)"
+
+            echo
+            echo "===== 7c. a site table becomes a Caddyfile ====="
+            # Proves the generator produces something Caddy itself accepts, and
+            # that an empty table writes nothing rather than an empty proxy.
+            mkdir -p /tmp/www/shop /tmp/www/site
+            {
+              echo 'shop.example.com php /tmp/www/shop'
+              echo 'portfolio.example.com static /tmp/www/site'
+              echo 'orders.example.com proxy 127.0.0.1:8090'
+            } > /tmp/sites.conf
+            # /tmp's mode is checked across the call. The generator used to run
+            # `install -d -m 755` on the output's parent unconditionally, which
+            # took /tmp from 1777 down to 755 and left postgres unable to create
+            # its socket lock file three steps below, failing with a message
+            # that named neither /tmp nor this script.
+            before=$(stat -f %Lp /tmp)
+            sh hajime-web/generate_caddyfile.sh --sites /tmp/sites.conf \
+                                                --out /tmp/Caddyfile
+            after=$(stat -f %Lp /tmp)
+            if [ "$before" != "$after" ]; then
+              echo "the generator changed /tmp from $before to $after"; exit 1
+            fi
+            echo "the generator left /tmp at $after"
+            caddy validate --config /tmp/Caddyfile --adapter caddyfile
+
+            echo '# none' > /tmp/none.conf
+            if sh hajime-web/generate_caddyfile.sh --sites /tmp/none.conf \
+                                                   --out /tmp/Caddyfile2; then
+              echo "an empty table should have exited 2"; exit 1
+            fi
+            if [ -f /tmp/Caddyfile2 ]; then
+              echo "it wrote a file for an empty table"; exit 1
+            fi
+            echo "the generator refuses an empty table"
+
+            echo
             echo "===== 8. postgres: initdb and a real query ====="
             sysrc postgresql_enable=YES
             service postgresql initdb
-            service postgresql start
+            # pg_ctl says only "could not start server. Examine the log
+            # output.", and the FreeBSD port ships log_destination = syslog, so
+            # the reason goes to /var/log/messages and never to the CI page.
+            # Finding that out once cost three runs; print it here instead.
+            if ! service postgresql start; then
+              echo "--- postgres would not start; here is why ---"
+              df -h /
+              ls -ld /tmp
+              tail -40 /var/log/messages 2>/dev/null || echo "no /var/log/messages"
+              exit 1
+            fi
             sleep 5
             su -m postgres -c 'psql -tAc "select version()"' | head -1
 
