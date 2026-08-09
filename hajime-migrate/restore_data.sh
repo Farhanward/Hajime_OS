@@ -127,7 +127,11 @@ step "postgresql"
 PG_DUMP="$SRC/db/postgresql_all.sql"
 if [ ! -f "$PG_DUMP" ]; then
     skip "postgresql: no dump in the backup"
-elif ! service postgresql onestatus >/dev/null 2>&1 && [ "$DRY" -eq 0 ]; then
+# Checked in a dry run too. It was not, and the rehearsal on a machine where
+# postgresql had never been installed printed a plan that claimed the restore
+# would succeed. A dry run that hides the blocker is worse than no dry run: it
+# counts the blocker and keeps going, which is the whole point of the flag.
+elif ! service postgresql onestatus >/dev/null 2>&1; then
     bad "postgresql: the server is not running (service postgresql start)"
 else
     EXISTING=0
@@ -170,7 +174,9 @@ restore_mariadb() {
         skip "mariadb ${label}: no dump in the backup"
         return
     fi
-    if ! service mysql-server onestatus >/dev/null 2>&1 && [ "$DRY" -eq 0 ]; then
+    # Same as postgresql above: the dry run skipped this and reported both
+    # databases as restored against a machine with no mariadb installed.
+    if ! service mysql-server onestatus >/dev/null 2>&1; then
         bad "mariadb ${label}: the server is not running (service mysql-server start)"
         return
     fi
@@ -221,6 +227,12 @@ step "workflows"
 WF="$SRC/db/n8n_workflows.json"
 if [ ! -f "$WF" ]; then
     bad "no n8n_workflows.json in the backup; the automations would be lost"
+elif ! pw usershow "$HAJIME_USER" >/dev/null 2>&1; then
+    # install(1) says "unknown group hajime" and nothing else, which reads like
+    # a bug in this script rather than a step that was never run. The account is
+    # created by install_hajime_os.sh; the rehearsal skipped that and spent a
+    # while working out why the workflows would not install.
+    bad "no ${HAJIME_USER} account on this machine; run install_hajime_os.sh first"
 else
     run install -d -o "$HAJIME_USER" -g "$HAJIME_USER" -m 750 "$HAJIME_DATA"
     if run install -o "$HAJIME_USER" -g "$HAJIME_USER" -m 640 "$WF" \
