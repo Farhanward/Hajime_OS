@@ -1,0 +1,54 @@
+# Unattended FreeBSD 14.4 install for the Hajime server.
+#
+# Read by "bsdinstall script". Everything above the #! line is the installer's
+# own settings; everything below runs inside a chroot of the newly installed
+# system, before the first boot.
+#
+# ZFSBOOT_DISKS is what selects ZFS. Verified in FreeBSD 14.4's own
+# usr.sbin/bsdinstall/scripts/script:
+#     if [ "$ZFSBOOT_DISKS" ]; then bsdinstall zfsboot
+#     else bsdinstall scriptedpart "$PARTITIONS"
+# Hajime's rollback story is boot environments, so UFS is not an option here.
+
+DISTRIBUTIONS="kernel.txz base.txz"
+
+export nonInteractive="YES"
+export ZFSBOOT_DISKS="ada0"
+export ZFSBOOT_VDEV_TYPE="stripe"
+export ZFSBOOT_POOL_NAME="zroot"
+export ZFSBOOT_SWAP_SIZE="16g"
+export ZFSBOOT_CONFIRM_LAYOUT="0"
+
+#!/bin/sh
+set -x
+
+# The old server's own settings, read off it rather than assumed:
+# 192.168.100.59/24, gateway and resolver both 192.168.100.1, interface re0
+# because the NIC is a Realtek 10ec:8168.
+sysrc hostname="carbonflow-tech"
+sysrc ifconfig_re0="inet 192.168.100.59 netmask 255.255.255.0"
+sysrc defaultrouter="192.168.100.1"
+sysrc sshd_enable="YES"
+sysrc zfs_enable="YES"
+sysrc ntpd_enable="YES"
+sysrc ntpd_sync_on_start="YES"
+
+echo "nameserver 192.168.100.1" > /etc/resolv.conf
+
+# FreeBSD ships PermitRootLogin no. Without this the key below is installed
+# and refused, and the machine is unreachable with no console to fix it from.
+# prohibit-password allows the key and still refuses a password.
+sed -i '' -E 's/^#?[[:space:]]*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i '' -E 's/^#?[[:space:]]*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+cat > /root/.ssh/authorized_keys <<'HAJIME_KEY'
+ssh-ed25519 AAAA...PUT-YOUR-OWN-PUBLIC-KEY-HERE... you@workstation
+HAJIME_KEY
+chmod 600 /root/.ssh/authorized_keys
+
+# A locked root password, not a blank one. The key is the way in.
+pw usermod root -h -
+
+touch /firstboot
