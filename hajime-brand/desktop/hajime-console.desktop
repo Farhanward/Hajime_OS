@@ -12,7 +12,11 @@ GenericName[ar]=حالة النظام
 Comment=What is broken and what worked
 Comment[ar]=ما المكسور وما الذي عمل
 Exec=xdg-open http://127.0.0.1:8088/
-Icon=hajime
+# An absolute path, not a theme name: no icon theme on this system ships an
+# entry called "hajime", so a symbolic name here resolved to nothing and
+# wf-panel's launcher widget dereferenced the failed lookup -- a crash caught
+# by hand on the production host on 2026-08-09, signal 11, every login.
+Icon=/usr/local/share/hajime/mark-64.png
 Terminal=false
 Categories=System;Monitor;
 Keywords=status;services;hajime;

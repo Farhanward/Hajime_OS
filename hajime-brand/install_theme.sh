@@ -104,7 +104,13 @@ write_block() {
         !skip   { print }
         $0 == e { skip = 0; next }
     ' "$file" > "$tmp" || return 1
-    printf '%s\n%s%s\n' "$BEGIN" "$body" "$END" >> "$tmp" || return 1
+    # Three separate %s\n conversions, not `%s%s` for body and END: MOTD_BODY
+    # and LOADER_BODY come from $(cat ...) / command substitution, which
+    # strips every trailing newline, so END landed glued onto the body's last
+    # line with no separator between them -- found by hand on the production
+    # host in both /boot/loader.conf and /etc/motd.template, after this ran
+    # there already. Re-run this script to fix the files it already wrote.
+    printf '%s\n%s\n%s\n' "$BEGIN" "$body" "$END" >> "$tmp" || return 1
     mv "$tmp" "$file"
 }
 
@@ -283,6 +289,11 @@ if [ "$DO_DESKTOP" -eq 1 ]; then
         warn "no home for ${USER_NAME}; the GTK palette was not installed.
             The desktop installer (hajime-wm/install_desktop.sh) does this part."
     else
+        # Same leaf-only chown gap as hajime-wm/install_desktop.sh: a fresh
+        # account has no ~/.config yet, `install -d` creates it owned by root,
+        # and every app that later tries to write its own subdirectory there
+        # gets EPERM. See install_desktop.sh for the crash this caused.
+        run install -d -o "${USER_NAME}" -m 755 "${HOME_DIR}/.config"
         for target in "${HOME_DIR}/.config/gtk-3.0" "${HOME_DIR}/.config/gtk-4.0"; do
             run install -d -o "${USER_NAME}" -m 755 "$target"
             put "${OUT}/palette-gtk.css" "${target}/palette-gtk.css" && \
