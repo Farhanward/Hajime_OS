@@ -205,6 +205,11 @@ fi
 
 # --- 5. the boot splash service --------------------------------------------
 step "boot splash"
+# /usr/local/etc/rc.d does not exist on a FreeBSD that has never installed a
+# package, and `install` will not create a missing parent. On the machine this
+# was written for it was always there; on a first install it never is, and the
+# splash service silently failed to install while everything around it worked.
+run install -d -m 755 "$RCD"
 if put "${HERE}/rc.d/hajime_splash" "${RCD}/hajime_splash" 755; then
     ok "${RCD}/hajime_splash"
     run sysrc hajime_splash_enable="YES" >/dev/null && ok "enabled at boot"
@@ -261,6 +266,7 @@ else
     warn "/etc/login.conf is missing; the language classes were not added"
 fi
 
+run install -d -m 755 /usr/local/bin   # same reason as rc.d above
 if put "${HERE}/bin/hajime-lang" /usr/local/bin/hajime-lang 755; then
     ok "/usr/local/bin/hajime-lang"
     say "   set a user's language with:  hajime-lang ar    (or: hajime-lang en)"
