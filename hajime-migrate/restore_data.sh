@@ -342,6 +342,46 @@ say "   Those describe the Docker stack this system replaces. Nothing reads"
 say "   them automatically; they are there so you can look up a setting the"
 say "   old machine had and this one does not."
 
+# --- 9b. the shop, which is not reference material -------------------------
+# Everything staged above is there to be read, not served. The shop is the
+# exception: it is a running store, and its files are a document root Caddy
+# has to find. Leaving it in a directory named restore-staging is how a
+# temporary path becomes the permanent one.
+#
+# It lived in a Docker named volume rather than a bind mount
+# (carbonflow-tech_litecart_html mounted at /var/www/html), so it arrives
+# inside the volumes archive rather than anywhere obvious. /vault/litecart is
+# where it goes: the old server already reserved that name and left it empty.
+step "the shop"
+
+SHOP_SRC="${STAGING}/volumes/carbonflow-tech_litecart_html/_data"
+SHOP_DST=/vault/litecart
+
+if [ ! -d "$SHOP_SRC" ] && [ "$DRY" -eq 0 ]; then
+    skip "the shop: no litecart volume in this backup"
+elif [ -d "$SHOP_DST" ] && [ -n "$(ls -A "$SHOP_DST" 2>/dev/null)" ] && [ "$FORCE" -eq 0 ]; then
+    # Overwriting a document root that already has something in it is how a
+    # second run destroys the edits made after the first.
+    bad "${SHOP_DST} already has files in it. Pass --force to replace them."
+else
+    # www owns it: Caddy and php-fpm both run as www on FreeBSD, and a
+    # document root the server cannot read is a 403 on every page.
+    run install -d -o www -g www -m 755 "$SHOP_DST"
+    if run sh -c "cp -R '${SHOP_SRC}/.' '${SHOP_DST}/' && chown -R www:www '${SHOP_DST}'"; then
+        ok "the shop is at ${SHOP_DST}, owned by www"
+        say "         declare it in hajime-web/sites.conf as:"
+        say "         shop.<your-domain>  php  ${SHOP_DST}"
+    else
+        bad "could not place the shop at ${SHOP_DST}"
+    fi
+fi
+
+# /vault/products is bind-mounted into the shop read-only for its product
+# images, and it comes back with the rest of /vault rather than through here.
+if [ "$DRY" -eq 0 ] && [ ! -d /vault/products ]; then
+    warn "/vault/products is missing; the shop's product images live there"
+fi
+
 # --- 10. verdict -----------------------------------------------------------
 step "result"
 
