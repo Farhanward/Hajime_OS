@@ -155,8 +155,19 @@ jobs:
               echo 'portfolio.example.com static /tmp/www/site'
               echo 'orders.example.com proxy 127.0.0.1:8090'
             } > /tmp/sites.conf
+            # /tmp's mode is checked across the call. The generator used to run
+            # `install -d -m 755` on the output's parent unconditionally, which
+            # took /tmp from 1777 down to 755 and left postgres unable to create
+            # its socket lock file three steps below, failing with a message
+            # that named neither /tmp nor this script.
+            before=$(stat -f %Lp /tmp)
             sh hajime-web/generate_caddyfile.sh --sites /tmp/sites.conf \
                                                 --out /tmp/Caddyfile
+            after=$(stat -f %Lp /tmp)
+            if [ "$before" != "$after" ]; then
+              echo "the generator changed /tmp from $before to $after"; exit 1
+            fi
+            echo "the generator left /tmp at $after"
             caddy validate --config /tmp/Caddyfile --adapter caddyfile
 
             echo '# none' > /tmp/none.conf
@@ -173,35 +184,14 @@ jobs:
             echo "===== 8. postgres: initdb and a real query ====="
             sysrc postgresql_enable=YES
             service postgresql initdb
-            # pg_ctl fails with "could not start server. Examine the log
-            # output." and the log it means never reaches stdout, so a failure
-            # here was unreadable from the CI page: a red job with no reason in
-            # it. Print the log, and the disk and memory, which are what a
-            # startup failure in a VM this small usually comes down to.
+            # pg_ctl says only "could not start server. Examine the log
+            # output.", and the FreeBSD port ships log_destination = syslog, so
+            # the reason goes to /var/log/messages and never to the CI page.
+            # Finding that out once cost three runs; print it here instead.
             if ! service postgresql start; then
               echo "--- postgres would not start; here is why ---"
               df -h /
-              sysctl hw.physmem 2>/dev/null || true
-              for f in /var/db/postgres/data17/logfile \
-                       /var/log/postgresql.log \
-                       /var/db/postgres/data17/log/*; do
-                [ -f "$f" ] && { echo "--- $f"; tail -40 "$f"; }
-              done
-              # The first pass printed neither: pg_ctl's log went nowhere, and
-              # a disk with 174 GB free and 6 GB of memory ruled out the two
-              # usual answers. Run the server in the foreground instead, where
-              # whatever it is complaining about lands on stdout, and check the
-              # shared libraries -- the packages installed just above this step
-              # are the only thing that changed.
-              # The FreeBSD port ships a postgresql.conf with
-              # log_destination = syslog, so the reason this fails has been
-              # going to /var/log/messages the whole time and neither the CI
-              # page nor a pg_ctl logfile ever saw it. Override the destination
-              # for this one foreground run, and read syslog as well.
-              echo "--- postgres, in the foreground, logging to stderr"
-              su -m postgres -c '/usr/local/bin/postgres -D /var/db/postgres/data17 \
-                -c log_destination=stderr -c logging_collector=off' 2>&1 | head -30
-              echo "--- syslog"
+              ls -ld /tmp
               tail -40 /var/log/messages 2>/dev/null || echo "no /var/log/messages"
               exit 1
             fi
