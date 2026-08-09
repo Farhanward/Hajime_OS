@@ -119,6 +119,19 @@ pub const SERVICES: &[Service] = &[
         typical_mb: 25,
     },
     Service {
+        // Started after the workflow engine and before the optional services,
+        // because it is the thing you look at while deciding whether to start
+        // them. Optional rather than essential: the sites serve without it, and
+        // `hajimectl save` should be free to stop it under memory pressure.
+        name: "hajime_console",
+        rc_script: None,
+        description: "The page saying what is broken and what worked",
+        tier: Tier::Optional,
+        port: Some(8088),
+        health_path: None,
+        typical_mb: 15,
+    },
+    Service {
         name: "hajime_wa",
         rc_script: None,
         description: "WhatsApp gateway",
@@ -182,6 +195,49 @@ pub fn reclaimable_mb() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every service this system owns must have an rc script in the tree.
+    ///
+    /// This is the check that was missing. `hajime_console` and
+    /// `hajime_wa_bridge` were both listed here, both installed as binaries,
+    /// and neither had a script to start them -- so the console answered
+    /// nothing on 8088 while the message of the day pointed at it, and the
+    /// WhatsApp gateway reported its bridge as down for ever. Nothing failed;
+    /// it just never worked.
+    ///
+    /// Only the services whose name begins with `hajime` are checked. The rest
+    /// are packages, and their rc scripts arrive with them.
+    #[test]
+    fn every_hajime_service_has_an_rc_script_in_this_repository() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("hajime-sys sits inside the workspace")
+            .to_path_buf();
+
+        let mut scripts = Vec::new();
+        for entry in std::fs::read_dir(&root).expect("the workspace is readable") {
+            let dir = entry.expect("a readable entry").path().join("rc.d");
+            if !dir.is_dir() {
+                continue;
+            }
+            for f in std::fs::read_dir(&dir).expect("rc.d is readable") {
+                let path = f.expect("a readable entry").path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    scripts.push(name.to_string());
+                }
+            }
+        }
+        assert!(!scripts.is_empty(), "found no rc.d scripts at all under {root:?}");
+
+        for service in SERVICES.iter().filter(|s| s.name.starts_with("hajime")) {
+            assert!(
+                scripts.iter().any(|s| s == service.rc_name()),
+                "{} is managed but no rc.d/{} exists. It would be installed as a                  binary that nothing ever starts. Scripts found: {scripts:?}",
+                service.name,
+                service.rc_name(),
+            );
+        }
+    }
 
     #[test]
     fn the_rc_script_is_the_name_unless_the_port_disagrees() {

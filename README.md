@@ -22,6 +22,7 @@
 | `hajime-fetch` | جلب صفحات واستخلاص نصها، بديل متصفح كامل |
 | `hajime-sys` | `hajimectl`: خدمات، لقطات، فحص إقلاع، وضع توفير، jails |
 | `hajime-console` | صفحة واحدة تقول ما المكسور وما الذي عمل |
+| `hajime-web` | ما يجعل الجهاز يخدم: جدول المواقع، ومولّد Caddyfile، وقالب النفق |
 | `hajime-wm` | سطح مكتب wayfire وثيم GTK بألوان النظام |
 | `hajime-brand` | مصدر المظهر: لوحة واحدة، ماسكوت مرسوم بالكود، ومولّد يُخرج شاشات الإقلاع وملفات الثيم |
 | `hajime-jails` | ثلاثة jails وقواعد pf |
@@ -56,6 +57,16 @@ sh hajime-migrate/restore_data.sh /vault/hajime_backups/<التاريخ>
 hajimectl check
 hajimectl start
 ```
+
+المواقع لا تعود من المثبّت وحده. أعلنها في `hajime-web/sites.conf` ثم:
+
+```bash
+sh hajime-web/generate_caddyfile.sh
+service caddy reload
+```
+
+والنفق يحتاج اعتماداً من حسابك، لا يخترعه المثبّت:
+`hajime-web/cloudflared.yml.example` يشرح الأوامر الثلاثة التي تنتجه.
 
 المثبّت يستدعي مثبّت المظهر بنفسه (`--no-desktop`)، فيكتب شاشة المُقلِع وألوان
 طرفية النواة ورسالة اليوم وصفّي اللغة. لتشغيله وحده أو لإعادة تشغيله:
