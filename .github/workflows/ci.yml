@@ -130,7 +130,8 @@ jobs:
             # been renamed in the ports tree, it fails here rather than on the
             # server.
             pkg install -y postgresql17-server postgresql17-client \
-                           mariadb1011-server mariadb1011-client redis caddy
+                           mariadb1011-server mariadb1011-client redis caddy \
+                           badwolf
 
             echo
             echo "===== 7b. PHP, for the shop ====="

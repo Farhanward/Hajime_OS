@@ -81,13 +81,21 @@ step "packages"
 # drm-kmod is the meta-port: it selects the driver version matching this
 # kernel. Pinning a specific one by hand is what produces the version
 # mismatches people hit on point releases.
-# wayfire and wf-shell are the desktop. The four after them are what the
+# wayfire and wf-shell are the desktop. The five after them are what the
 # launchers in wf-shell.ini actually start: without them the panel has buttons
 # that do nothing, which is worse than a panel with fewer buttons.
 #
+# badwolf is the browser xdg-open hands the console URL to. netsurf and dillo
+# are lighter still but ship no working JavaScript engine, and the console
+# page needs one -- a browser that cannot run it is not light, it is useless.
+# falkon and qutebrowser run, but both pull in all of Qt WebEngine, which is a
+# second Chromium-class engine on a machine with 8 GB of RAM that is also
+# running nineteen services. badwolf is WebKitGTK with almost no shell around
+# it: a real engine without the second-Chromium cost.
+#
 # imv is for the splash and is the one thing here that is optional in practice:
 # wayfire.ini guards on it, so a session still starts if it is missing.
-PKGS="drm-kmod ${FIRMWARE} seatd wayfire wf-shell xterm thunar imv xdg-utils"
+PKGS="drm-kmod ${FIRMWARE} seatd wayfire wf-shell xterm thunar imv xdg-utils badwolf"
 
 for p in $PKGS; do
     if pkg info -e "$p" 2>/dev/null; then
@@ -157,6 +165,21 @@ if run install -o "${USER_NAME}" -m 644 "${HERE}/wf-shell.ini" "${HOME_DIR}/.con
     ok "wf-shell.ini installed (panel at the bottom, wallpaper, launchers)"
 else
     warn "could not install wf-shell.ini"
+fi
+
+# There is no GNOME or KDE session here for xdg-open to detect, so it falls
+# through to `xdg-mime query default x-scheme-handler/http`, which reads
+# $XDG_CONFIG_HOME/mimeapps.list -- $HOME/.config/mimeapps.list, since nothing
+# on this desktop sets XDG_CONFIG_HOME. Without this file the console
+# launcher's `xdg-open http://127.0.0.1:8088/` finds no handler and the button
+# does nothing. The name it points at, badwolf.desktop, is not written by this
+# repo: the www/badwolf package installs it to
+# /usr/local/share/applications/badwolf.desktop, which is on the default
+# XDG_DATA_DIRS search path and is where xdg-mime resolves the name from.
+if run install -o "${USER_NAME}" -m 644 "${HERE}/mimeapps.list" "${HOME_DIR}/.config/mimeapps.list"; then
+    ok "mimeapps.list installed (badwolf is the default browser)"
+else
+    warn "could not install mimeapps.list"
 fi
 
 # --- 6. verdict ------------------------------------------------------------
