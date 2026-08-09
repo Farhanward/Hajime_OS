@@ -173,7 +173,21 @@ jobs:
             echo "===== 8. postgres: initdb and a real query ====="
             sysrc postgresql_enable=YES
             service postgresql initdb
-            service postgresql start
+            # pg_ctl fails with "could not start server. Examine the log
+            # output." and the log it means never reaches stdout, so a failure
+            # here was unreadable from the CI page: a red job with no reason in
+            # it. Print the log, and the disk and memory, which are what a
+            # startup failure in a VM this small usually comes down to.
+            if ! service postgresql start; then
+              echo "--- postgres would not start; here is why ---"
+              df -h /
+              sysctl hw.physmem vm.stats.vm.v_free_count 2>/dev/null || true
+              for f in /var/db/postgres/data17/logfile \
+                       /var/db/postgres/data17/log/*; do
+                [ -f "$f" ] && { echo "--- $f"; tail -40 "$f"; }
+              done
+              exit 1
+            fi
             sleep 5
             su -m postgres -c 'psql -tAc "select version()"' | head -1
 
