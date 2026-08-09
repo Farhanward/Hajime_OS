@@ -187,3 +187,8 @@ Write-Host @"
 
    Nothing here has touched the production server.
 "@ -ForegroundColor Green
+
+# robocopy reports success with exit codes 1 through 3 -- files copied, extra
+# files present -- and PowerShell hands the last one back as this script's own.
+# Without this the rehearsal reports failure at the end of a run that worked.
+exit 0
