@@ -181,11 +181,24 @@ jobs:
             if ! service postgresql start; then
               echo "--- postgres would not start; here is why ---"
               df -h /
-              sysctl hw.physmem vm.stats.vm.v_free_count 2>/dev/null || true
+              sysctl hw.physmem 2>/dev/null || true
               for f in /var/db/postgres/data17/logfile \
+                       /var/log/postgresql.log \
                        /var/db/postgres/data17/log/*; do
                 [ -f "$f" ] && { echo "--- $f"; tail -40 "$f"; }
               done
+              # The first pass printed neither: pg_ctl's log went nowhere, and
+              # a disk with 174 GB free and 6 GB of memory ruled out the two
+              # usual answers. Run the server in the foreground instead, where
+              # whatever it is complaining about lands on stdout, and check the
+              # shared libraries -- the packages installed just above this step
+              # are the only thing that changed.
+              echo "--- postgres, in the foreground"
+              su -m postgres -c \
+                '/usr/local/bin/postgres -D /var/db/postgres/data17' 2>&1 | head -20
+              echo "--- libraries"
+              ldd /usr/local/bin/postgres 2>&1 | grep -i 'not found' || \
+                echo "every library resolves"
               exit 1
             fi
             sleep 5
