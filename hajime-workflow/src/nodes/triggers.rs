@@ -15,8 +15,10 @@ use croner::Cron;
 ///
 /// n8n nests the schedule as
 /// `{"rule": {"interval": [{"field": "cronExpression", "expression": "0 * * * *"}]}}`.
-/// Every imported workflow uses `cronExpression`; the friendlier `hours` and
-/// `minutes` forms are recognised and converted.
+/// Most imported workflows use `cronExpression` directly; one active workflow
+/// ("CarbonFlow Node B") uses the friendlier `hours` form instead, so that
+/// conversion is not a hypothetical. `minutes` and `days` are recognised too,
+/// on the same n8n-editor pattern, though no imported workflow uses them yet.
 #[derive(Default)]
 pub struct ScheduleTrigger;
 
@@ -253,6 +255,22 @@ mod tests {
             ]}}),
         );
         assert_eq!(ScheduleTrigger::expressions(&daily).unwrap(), vec!["20 3 * * *"]);
+    }
+
+    #[test]
+    fn the_hours_form_used_by_carbonflow_node_b_converts_correctly() {
+        // The only active workflow in the 2026-08-06 export whose schedule is
+        // not written as a raw cronExpression. `minutes` and `days` had unit
+        // coverage; this branch of the same match arm did not, and it is the
+        // one the real backup actually exercises.
+        let n = node(
+            "scheduleTrigger",
+            serde_json::json!({"rule": {"interval": [
+                {"field": "hours", "hoursInterval": 12}
+            ]}}),
+        );
+        assert_eq!(ScheduleTrigger::expressions(&n).unwrap(), vec!["0 */12 * * *"]);
+        assert_eq!(ScheduleTrigger::crons(&n).unwrap().len(), 1);
     }
 
     #[test]
