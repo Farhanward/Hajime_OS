@@ -32,6 +32,18 @@ kern.vt.color.15.rgb="#f0dcc4"   # bright white
 # correct to anyone reading it.
 screen.font="16x32"
 
+# The boot screen is drawn at 1920x1080 and the machine came up at
+# 800x600, which is what the firmware offered and what the loader took
+# because nothing asked for anything else. i915kms later replaces efifb
+# and the desktop is fine, so the only surface that was ever wrong is
+# the one this theme exists for: the boot screen and the early console.
+#
+# efi_max_resolution is read in stand/efi/loader/framebuffer.c and takes
+# 480p, 720p, 1080p, 1440p, 2160p, 4k, 5k or WIDTHxHEIGHT. It caps rather
+# than forces: a mode the firmware does not advertise is not conjured up,
+# so verify_theme compares what came out against what was asked for.
+efi_max_resolution="1080p"
+
 # The loader's own screen.
 loader_logo="hajime"
 loader_brand="hajime"
