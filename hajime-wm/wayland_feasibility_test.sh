@@ -20,7 +20,7 @@
 # report of the same GPU generation reached 1920x1080@60Hz with exactly this,
 # and no X11 configuration at all:
 #
-#   pkg install drm-kmod gpu-firmware-intel-kabylake seatd wayfire wf-shell
+#   pkg install drm-kmod gpu-firmware-intel-kmod-kabylake seatd wayfire wf-shell
 #   sysrc kld_list="i915kms"
 #   sysrc seatd_enable="YES"
 #   service seatd start
@@ -90,16 +90,16 @@ fi
 # named by Intel codename, not by marketing name: a Kaby Lake i7-7700 with
 # HD 630 needs the `kabylake` package. Coffee Lake UHD 630 needs it too, since
 # both are Gen9.5 and share `i915/kbl_dmc_ver1_04.bin`.
-if pkg info -e gpu-firmware-intel-kabylake 2>/dev/null; then
-    ok "gpu-firmware-intel-kabylake installed"
+if pkg info -e gpu-firmware-intel-kmod-kabylake 2>/dev/null; then
+    ok "gpu-firmware-intel-kmod-kabylake installed"
 elif pkg info 2>/dev/null | grep -q '^gpu-firmware-intel'; then
     note "a different Intel firmware package is installed:"
     pkg info 2>/dev/null | grep '^gpu-firmware-intel' | while read -r l; do note "  $l"; done
-    note "Kaby Lake needs: pkg install gpu-firmware-intel-kabylake"
+    note "Kaby Lake needs: pkg install gpu-firmware-intel-kmod-kabylake"
 else
     bad "no Intel GPU firmware package installed"
     note "this alone will stop the GPU from initialising. Install it:"
-    note "  pkg install gpu-firmware-intel-kabylake"
+    note "  pkg install gpu-firmware-intel-kmod-kabylake"
 fi
 
 if kldstat -q -m i915kms 2>/dev/null; then
@@ -111,7 +111,7 @@ else
     else
         bad "i915kms refused to load — this is the blocking failure"
         note "the two usual causes, in order of likelihood:"
-        note "  1. missing firmware  -> pkg install gpu-firmware-intel-kabylake"
+        note "  1. missing firmware  -> pkg install gpu-firmware-intel-kmod-kabylake"
         note "  2. package built for a different 14.x point release"
         note "     -> cd /usr/ports/graphics/drm-kmod && make install clean"
         note "check: dmesg | tail -30"
@@ -127,7 +127,7 @@ if [ -n "$FW" ]; then
         ok "firmware loaded successfully"
     elif printf '%s' "$FW" | grep -qiE 'not found|failed|error'; then
         bad "firmware missing — read the filename above and install its package"
-        note "the 'kbl_' prefix means Kaby Lake: gpu-firmware-intel-kabylake"
+        note "the 'kbl_' prefix means Kaby Lake: gpu-firmware-intel-kmod-kabylake"
     fi
 else
     note "no drm firmware lines in dmesg yet"

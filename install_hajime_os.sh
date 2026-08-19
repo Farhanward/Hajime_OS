@@ -410,7 +410,17 @@ if [ "$DRY" -eq 1 ]; then
     say "   would  train the system model into $HAJIME_ETC/model.json"
 elif [ -x "$BIN/hajime-model" ]; then
     if "$BIN/hajime-model" train "$HAJIME_ETC/model.json" >>"$LOG" 2>&1; then
-        chmod 644 "$HAJIME_ETC/model.json"
+        # 600, not 644. Everything in $HAJIME_ETC is checked by the secret
+        # guard in hajime-core, which refuses to start a daemon when anything
+        # in that directory is readable beyond its owner. The first install on
+        # hardware wrote this file 644 and the console then refused to start,
+        # logging the file it objected to and nothing else -- an installer
+        # producing a state its own console will not run in.
+        #
+        # The model holds no secret. It lives here because this is where the
+        # daemons look, and that makes the directory's rule apply to it.
+        chown "$HAJIME_USER" "$HAJIME_ETC/model.json"
+        chmod 600 "$HAJIME_ETC/model.json"
         ok "system model trained into $HAJIME_ETC/model.json"
         run sysrc hajime_model_weights="$HAJIME_ETC/model.json" >/dev/null
     else
@@ -429,13 +439,26 @@ PG_DATA=$(sysrc -n postgresql_data 2>/dev/null || echo /var/db/postgres/data17)
 if ! pkg info -e postgresql17-server 2>/dev/null; then
     warn "postgresql is not installed, so there is no cluster to create"
 elif [ "$DRY" -eq 1 ]; then
-    say "   would  service postgresql initdb"
+    say "   would  service postgresql oneinitdb"
 elif [ -f "$PG_DATA/PG_VERSION" ]; then
     ok "postgresql cluster already initialised at ${PG_DATA}"
 else
     # initdb refuses a non-empty directory, which is the behaviour we want:
     # silently reinitialising over an existing cluster would destroy it.
-    if run service postgresql initdb; then
+    #
+    # `oneinitdb`, not `initdb`. FreeBSD's rc refuses any verb on a service
+    # whose rcvar is off, and postgresql_enable is not written until the boot
+    # order step below. The first real install on hardware ended with no
+    # cluster at all and this in the log:
+    #
+    #   Cannot 'initdb' postgresql. Set postgresql_enable to YES in
+    #   /etc/rc.conf or use 'oneinitdb' instead of 'initdb'.
+    #
+    # The `one` prefix is exactly for this: run the verb regardless of the
+    # rcvar. Creating the cluster should not depend on a line that has not
+    # been written yet, and reordering the two steps would only move the
+    # coupling rather than remove it.
+    if run service postgresql oneinitdb; then
         ok "postgresql cluster created at ${PG_DATA}"
     else
         warn "postgresql initdb failed; see ${LOG}. Restore will have nowhere to go."
@@ -573,12 +596,21 @@ fi
 
 say "   Installed, ${WARNINGS} warning(s). Full log: ${LOG}"
 say ""
-say "   Nothing is running yet and no data has been restored. In order:"
+say "   Nothing is running yet. In order:"
 say ""
-say "     1. restore the data     sh hajime-migrate/restore_data.sh <backup-dir>"
-say "     2. check the machine    hajimectl check"
-say "     3. bring services up    hajimectl start"
-say "     4. reboot, so the tunables load and you learn now whether it"
+# The migration tooling is a separate concern from installing, and it is not
+# part of a fresh install at all. Printing a command for a directory that is
+# not here sends the reader looking for a file that was never shipped.
+STEP=1
+if [ -d "${HERE}/hajime-migrate" ]; then
+    say "     ${STEP}. restore the data     sh hajime-migrate/restore_data.sh <backup-dir>"
+    STEP=$((STEP + 1))
+fi
+say "     ${STEP}. check the machine    hajimectl check"
+STEP=$((STEP + 1))
+say "     ${STEP}. bring services up    hajimectl start"
+STEP=$((STEP + 1))
+say "     ${STEP}. reboot, so the tunables load and you learn now whether it"
 say "        comes back clean rather than during the next power cut"
 say ""
 say "   Two more layers, both separate and both optional. Neither is needed to"

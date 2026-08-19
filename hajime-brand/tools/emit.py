@@ -206,12 +206,20 @@ def motd() -> str:
     knows nothing about, and colour escapes in a message of the day are how you
     end up with `ESC[36m` printed literally in somebody's log.
     """
+    mark = brand("system.mark_emoji")
+    head = f"{brand('system.name')} {brand('system.version')} -- {brand('system.tagline_en')}"
     lines = [
-        f"{brand('system.name')} {brand('system.version')} -- {brand('system.tagline_en')}",
+        f"{mark} {head}".strip(),
         "",
         f"  {brand('author.repo')}",
         f"  built by {brand('author.name')}",
     ]
+    # Said in the same breath as the line below it, and on purpose. "No company
+    # behind it" is a claim about who maintains this, and it stands next to the
+    # sentence naming what the whole thing runs on, so neither can be read as
+    # the other.
+    if brand("system.built_on"):
+        lines.append(f"  a {brand('system.built_on')} distribution")
     if brand("support.url"):
         lines += [
             "",
@@ -282,9 +290,27 @@ def loader_conf_vt() -> str:
         out.append(f'kern.vt.color.{num}.rgb="{hexv}"   # {name}')
     out += [
         "",
-        "# A 16x32 VGA face: at 1080p the 8x16 default is a line of ants, and this",
-        "# is the same grid the pixel art is drawn on.",
-        'screen.font="vgarom-16x32"',
+        "# A 16x32 face: at 1080p the default is a line of ants, and this is the",
+        "# same grid the pixel art is drawn on.",
+        "#",
+        "# The name is the file in /boot/fonts without its .fnt.gz, and the loader",
+        "# ignores a name it does not have there without saying so. This asked for",
+        "# vgarom-16x32 for a while; FreeBSD 14.4 ships 16x32 and no vgarom-16x32,",
+        "# so every boot silently kept the 6x12 default while loader.conf looked",
+        "# correct to anyone reading it.",
+        'screen.font="16x32"',
+        "",
+        "# The boot screen is drawn at 1920x1080 and the machine came up at",
+        "# 800x600, which is what the firmware offered and what the loader took",
+        "# because nothing asked for anything else. i915kms later replaces efifb",
+        "# and the desktop is fine, so the only surface that was ever wrong is",
+        "# the one this theme exists for: the boot screen and the early console.",
+        "#",
+        "# efi_max_resolution is read in stand/efi/loader/framebuffer.c and takes",
+        "# 480p, 720p, 1080p, 1440p, 2160p, 4k, 5k or WIDTHxHEIGHT. It caps rather",
+        "# than forces: a mode the firmware does not advertise is not conjured up,",
+        "# so verify_theme compares what came out against what was asked for.",
+        'efi_max_resolution="1080p"',
         "",
         "# The loader's own screen.",
         'loader_logo="hajime"',

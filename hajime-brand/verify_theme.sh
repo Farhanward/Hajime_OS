@@ -122,10 +122,21 @@ else
     fi
 fi
 
+# Compared, not just read. This reported whatever font the kernel happened to
+# be running as `live`, which is not a check: the loader ignores a screen.font
+# it cannot find and says nothing, so loader.conf asked for vgarom-16x32, the
+# console stayed on the 6x12 default, and the verifier called it green. A
+# verifier that reports the running value as confirmation of the intended one
+# is the exact failure this whole file exists to prevent.
 font=$(kenv_get screen.font)
-if [ -n "$font" ]; then
+want=$(sed -n 's/^screen\.font="\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' /boot/loader.conf 2>/dev/null | tail -1)
+if [ -n "$font" ] && [ "$font" = "$want" ]; then
     live "screen.font" "$font"
-elif grep -q '^screen.font' /boot/loader.conf 2>/dev/null; then
+elif [ -n "$font" ] && [ -n "$want" ]; then
+    gone "screen.font" "loader.conf asks for ${want}, the kernel is running ${font}.
+            The loader drops a font that is not in /boot/fonts; the name is the
+            file there without its .fnt.gz"
+elif [ -n "$want" ]; then
     written "screen.font" "applies at the next boot"
 else
     gone "screen.font"

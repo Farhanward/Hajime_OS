@@ -21,6 +21,23 @@ tagline_ar = "ابدأ"
 tagline_en = "begin"
 version   = "1.0.0"
 
+# What this is, said plainly. Hajime is a FreeBSD distribution: the kernel,
+# ZFS, the loader, the drivers, the console and the whole base system are
+# FreeBSD's, and about twenty three thousand lines of ours sit on top of them.
+#
+# Printing this is what earns the line in [support]. That line claims no
+# company stands behind the project, which is true. It does not claim one
+# person wrote an operating system, which would not be. A reader who sees both
+# lines together cannot mistake one for the other.
+built_on = "FreeBSD 14.4"
+
+# The mascot as one character, for the surfaces that can draw it: an ssh
+# session, the web console, a README on a website. Not the text console --
+# vt(4) has a fixed bitmap glyph set and renders an unknown codepoint as an
+# empty box, so the console surfaces print the pixel robot instead. A symbol
+# that shows as a blank square is worse than no symbol.
+mark_emoji = "🤖"
+
 [author]
 name   = "Farhan Al-Mutairi"
 github = "github.com/Farhanward"
